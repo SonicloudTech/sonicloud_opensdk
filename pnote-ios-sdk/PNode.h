@@ -137,6 +137,12 @@
 //发送文件数据
 -(void)sendOtaFile:(NSData *)data;
 
+//获取BK固件版本号
+-(void)getBKHDVersion;
+
+//下发BK升级固件URL地址
+-(void)setBKUpgradeHD:(NSString *)url;
+
 ///打开WiFi
 -(void)openWiFi;
 
