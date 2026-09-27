@@ -48,7 +48,6 @@ recorder/
 │   ├── 硬件参数.png                       # 硬件参数图
 │   └── 企业微信.png                       # 联系二维码
 ├── SDK 集成引导.docx                     # SDK 集成流程与平台接入引导
-├── 声云专利交底书-标准BLE指令SDK方案.docx # 标准 BLE 指令 SDK 技术方案参考
 ├── demo.mp4                            # 演示视频
 └── LICENSE                             # MIT License
 ```
@@ -94,7 +93,7 @@ python -m unittest discover tests -v
 
 ## 移动端接入
 
-开始接入前，请先阅读 [SDK 集成引导（Word）](SDK%20%E9%9B%86%E6%88%90%E5%BC%95%E5%AF%BC.docx)，了解权限、依赖、初始化、回调、音频处理、文件续传和 OTA 验收流程；需要理解跨厂商标准化设计时，可参考 [标准 BLE 指令 SDK 技术方案](%E5%A3%B0%E4%BA%91%E4%B8%93%E5%88%A9%E4%BA%A4%E5%BA%95%E4%B9%A6-%E6%A0%87%E5%87%86BLE%E6%8C%87%E4%BB%A4SDK%E6%96%B9%E6%A1%88.docx)。
+开始接入前，请先阅读 [SDK 集成引导（Word）](SDK%20%E9%9B%86%E6%88%90%E5%BC%95%E5%AF%BC.docx)，了解权限、依赖、初始化、回调、音频处理、文件续传和 OTA 验收流程；需要理解跨厂商标准化设计时，可参考《标准 BLE 指令 SDK 技术方案》（该文档已不在仓库内发布，如需可联系声云获取）。
 
 ### Flutter 联调工程
 
@@ -108,7 +107,7 @@ flutter run
 
 ### Android
 
-将 [Android AAR](pnote-android-sdk/pnote_20260728171001.aar) 复制到应用的 `app/libs`（或 `src/main/libs`），添加 `fileTree` 依赖及 SDK 所需的 RxJava、Retrofit、EventBus 等依赖，然后调用：
+将 [Android AAR](pnote-android-sdk/pnote_20260827161403.aar) 复制到应用的 `app/libs`（或 `src/main/libs`），添加 `fileTree` 依赖及 SDK 所需的 RxJava、Retrofit、EventBus 等依赖，然后调用：
 
 ```java
 PNote.init(context, deviceDataListener);
