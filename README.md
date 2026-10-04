@@ -48,7 +48,6 @@ recorder/
 │   ├── 硬件参数.png                       # 硬件参数图
 │   └── 企业微信.png                       # 联系二维码
 ├── SDK 集成引导.docx                     # SDK 集成流程与平台接入引导
-├── 声云专利交底书-标准BLE指令SDK方案.docx # 标准 BLE 指令 SDK 技术方案参考
 ├── demo.mp4                            # 演示视频
 └── LICENSE                             # MIT License
 ```
