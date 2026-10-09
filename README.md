@@ -48,7 +48,7 @@ recorder/
 ├── img/                                  # 项目图片资源
 │   ├── 录音卡片.png                       # 产品图片
 │   ├── 硬件参数.png                       # 硬件参数图
-│   └── 企业微信.png                       # 联系二维码
+│   └── 微信.png                          # 联系二维码
 ├── SDK 集成引导.docx                     # SDK 集成流程与平台接入引导
 ├── demo.mp4                            # 演示视频
 └── LICENSE                             # MIT License
@@ -159,15 +159,20 @@ PNote.connectDevice(name, address);
 
 硬件接入可按“能力确认 → VendorAdapter 适配 → SDK 集成 → 真机联调”的流程推进。硬件方案侧提供芯片能力、BLE 服务/特征和私有命令信息，适配层负责将差异映射到标准接口；App 团队再使用 Android、iOS、HarmonyOS 或 Flutter 接口完成业务集成。接入前请准备目标设备、固件版本、协议资料和测试场景，以便确认功能范围并安排联调。
 
-<img src="img/企业微信.png" alt="企业微信" width="200" style="max-width: 100%; height: auto;">
+<img src="img/微信.png" alt="微信" width="200" style="max-width: 100%; height: auto;">
 
-如需获取硬件规格、样机、鸿蒙 SDK、协议完整版、企业微信二维码或技术支持资料，请联系 **安徽声云**（官网：[sinicloud.com](https://www.sinicloud.com/)）。咨询时请说明目标平台、预计数量和应用场景。
+如需获取硬件规格、样机、鸿蒙 SDK、协议完整版、微信二维码或技术支持资料，请联系 **安徽声云**（官网：[sinicloud.com](https://www.sinicloud.com/)）。咨询时请说明目标平台、预计数量和应用场景。
 
 ## 许可与使用边界
 
 仓库示例代码以 [MIT License](LICENSE) 发布。AAR、静态库、HAR、固件、设备私有协议和部分文档可能包含声云或厂商专有内容，不等同于全部开源，具体使用、再分发和商用范围以随包说明及双方商务协议为准。接口字段、命令编号和行为以最新 SDK、固件、协议版本及真机联调结果为准；SDK 不替代应用侧的 Opus 解码、文件存储、权限管理或安全控制。请勿将私有协议用于未获授权的硬件或产品。
 
 “标准 BLE 指令 SDK 技术方案”文档用于说明协议分层、指令设计和厂商适配思路；具体字段、接口行为和兼容性以仓库中的协议文档、SDK 版本及真实设备联调结果为准。
+
+## 相关仓库 · Related Repositories
+
+- **[声云智能鼠标 SDK（mouse-sdk）](https://github.com/SonicloudTech/mouse-sdk)**（[Gitee 镜像](https://gitee.com/SonicloudTech/mouse-sdk)）：跨系统跨架构（Windows / macOS / Linux 含 UOS / 麒麟 / 方德 × x86_64 / ARM64）的智能鼠标接入 SDK——USB / BLE 双通道，按键 / 事件 / 音频，纯 C ABI，中英双语文档与示例。原 `uMouse/` 目录已迁移至该仓库，详见 [uMouse/README.md](uMouse/README.md)。
+  *The SoniCloud Smart Mouse SDK — cross-platform & cross-architecture (Windows / macOS / Linux on x86_64 / ARM64), USB/BLE dual-channel, pure C ABI, bilingual docs and samples. The former `uMouse/` directory has moved there.*
 
 ## 反馈与问题
 
