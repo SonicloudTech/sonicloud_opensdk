@@ -167,6 +167,11 @@ PNote.connectDevice(name, address);
 
 “标准 BLE 指令 SDK 技术方案”文档用于说明协议分层、指令设计和厂商适配思路；具体字段、接口行为和兼容性以仓库中的协议文档、SDK 版本及真实设备联调结果为准。
 
+## 相关仓库 · Related Repositories
+
+- **[声云智能鼠标 SDK（mouse-sdk）](https://github.com/SonicloudTech/mouse-sdk)**（[Gitee 镜像](https://gitee.com/SonicloudTech/mouse-sdk)）：跨系统跨架构（Windows / macOS / Linux 含 UOS / 麒麟 / 方德 × x86_64 / ARM64）的智能鼠标接入 SDK——USB / BLE 双通道，按键 / 事件 / 音频，纯 C ABI，中英双语文档与示例。原 `uMouse/` 目录已迁移至该仓库，详见 [uMouse/README.md](uMouse/README.md)。
+  *The SoniCloud Smart Mouse SDK — cross-platform & cross-architecture (Windows / macOS / Linux on x86_64 / ARM64), USB/BLE dual-channel, pure C ABI, bilingual docs and samples. The former `uMouse/` directory has moved there.*
+
 ## 反馈与问题
 
 提交问题时请附上操作系统与版本、目标平台、SDK/Demo 版本、设备固件版本、复现步骤，以及必要的日志或收发帧 hex。涉及真实设备数据时，请先脱敏序列号、地址、授权码和录音内容。
