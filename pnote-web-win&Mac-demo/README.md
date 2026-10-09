@@ -1,5 +1,7 @@
 # 声云 录音卡 / CB08 录音笔处理程序
 
+**Language / 语言:** The Web console supports `中文` and `English`; switch languages from the selector in the top-right corner.
+
 基于《CB08 通讯协议 V1.0》（`docs/协议.md`）实现的录音笔 BLE 桌面处理程序：
 Python + [bleak](https://github.com/hbldh/bleak)，提供**命令行 REPL** 和 **Web 控制台**两套界面，
 覆盖协议全部 4 个命令类型，并集成本地离线语音转文字（FunASR SenseVoiceSmall）。

@@ -13,6 +13,7 @@ import 'package:soni_sdk_demo/service_system_ability.dart';
 import 'package:soni_sdk_demo/wave_write.dart';
 
 import 'bluetooth_constants.dart';
+import 'app_localization.dart';
 import 'logger.dart';
 import 'provider_record_pen.dart';
 
@@ -34,17 +35,19 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [ChangeNotifierProvider(create: (_) => RecordPenProvider())],
-
-      child: MaterialApp(
-        title: 'SoniSDkDemo',
-        debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          colorScheme: const ColorScheme.light(
-            primary: Color(0xff3a7afe),
+      child: ValueListenableBuilder<String>(
+        valueListenable: AppLocale.language,
+        builder: (context, language, child) => MaterialApp(
+          title: 'Soni Recorder SDK Demo',
+          debugShowCheckedModeBanner: false,
+          theme: ThemeData(
+            colorScheme: const ColorScheme.light(
+              primary: Color(0xff3a7afe),
+            ),
           ),
-        ),
-        home: const MyHomePage(
-          title: deviceAes256Gcm ? 'SoniSDkDemo-BK解密' : 'SoniSDkDemo',
+          home: MyHomePage(
+            title: deviceAes256Gcm ? 'Soni Recorder SDK (BK)' : 'Soni Recorder SDK',
+          ),
         ),
       ),
     );
@@ -503,17 +506,26 @@ class _MyHomePageState extends State<MyHomePage> {
       appBar: AppBar(
         title: Text(widget.title,style: TextStyle(fontSize: 14)),
         actions: [
+          PopupMenuButton<String>(
+            tooltip: 'Language',
+            icon: const Icon(Icons.language),
+            onSelected: (value) => AppLocale.language.value = value,
+            itemBuilder: (context) => const [
+              PopupMenuItem(value: 'zh', child: Text('中文')),
+              PopupMenuItem(value: 'en', child: Text('English')),
+            ],
+          ),
           TextButton(
             onPressed: () {
               setState(() {
                 _data.clear();
               });
             },
-            child: Text("清屏"),
+            child: Text(AppLocale.text('清屏')),
           ),
           TextButton(
             onPressed: _copyLogToClipboard,
-            child: const Text("复制log"),
+            child: Text(AppLocale.text('复制log')),
           ),
         ],
       ),
@@ -582,7 +594,7 @@ class _MyHomePageState extends State<MyHomePage> {
                         onPressed: _selectedDeviceAddress == null
                             ? null
                             : () => _connectSelectedDevice(recordPenProvider),
-                        child: const Text('连接'),
+                        child: Text(AppLocale.text('连接')),
                       ),
                     ),
                   ],
@@ -994,7 +1006,7 @@ class _MyHomePageState extends State<MyHomePage> {
   /// 紧凑型输入框样式，减少纵向占用
   InputDecoration _compactInput(String hint) {
     return InputDecoration(
-      hintText: hint,
+      hintText: AppLocale.text(hint),
       hintStyle: const TextStyle(fontSize: 12, color: Colors.grey),
       isDense: true,
       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -1006,7 +1018,7 @@ class _MyHomePageState extends State<MyHomePage> {
     return FilledButton(
       onPressed: enabled ? onTap : null,
       style: ButtonStyle(padding: MaterialStateProperty.all(EdgeInsets.zero)),
-      child: FittedBox(child: Text(title, style: TextStyle(fontSize: 12))),
+      child: FittedBox(child: Text(AppLocale.text(title), style: const TextStyle(fontSize: 12))),
     );
   }
 }
