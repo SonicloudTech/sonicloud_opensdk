@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key>
+  <string>com.k2-fsa.sherpa-onnx</string>
+  <key>CFBundleName</key>
+  <string>SherpaOnnxC</string>
+  <key>CFBundlePackageType</key>
+  <string>FMWK</string>
+  <key>CFBundleExecutable</key>
+  <string>SherpaOnnxC</string>
+  <key>CFBundleVersion</key>
+  <string>20260910</string>
+  <key>CFBundleShortVersionString</key>
+  <string>1.13.8</string>
+  <key>MinimumOSVersion</key>
+  <string>13.0</string>
+  <key>CFBundleSupportedPlatforms</key>
+  <array>
+    <string>iPhoneOS</string>
+  </array>
+</dict>
+</plist>

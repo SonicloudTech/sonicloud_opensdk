@@ -1,0 +1,4 @@
+framework module SherpaOnnxC {
+  header "sherpa-onnx/c-api/c-api.h"
+  export *
+}

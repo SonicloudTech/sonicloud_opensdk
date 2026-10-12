@@ -1,0 +1,5 @@
+module onnxruntime {
+    umbrella header "Headers/onnxruntime_c_api.h"
+    export *
+    module * { export * }
+}

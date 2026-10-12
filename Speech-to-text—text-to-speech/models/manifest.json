@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "models": {
+    "asr_sensevoice": {
+      "engine": "sherpa-onnx",
+      "type": "asr",
+      "languages": ["auto", "zh", "en", "yue", "ja", "ko"],
+      "archive": "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09.tar.bz2",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09.tar.bz2",
+      "sha256": "7305f7905bfcf77fa0b39388a313f3da35c68d971661a65475b56fb2162c8e63",
+      "directory": "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09",
+      "model_file": "model.int8.onnx",
+      "tokens_file": "tokens.txt"
+    },
+    "tts_kokoro_multilingual": {
+      "engine": "sherpa-onnx",
+      "type": "tts",
+      "languages": ["zh", "en"],
+      "archive": "kokoro-int8-multi-lang-v1_0.tar.bz2",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-int8-multi-lang-v1_0.tar.bz2",
+      "sha256": "4c3052abaa60943a341f193888cf6abd68787dae6ab8ae5c925a706caa247e4e",
+      "directory": "kokoro-int8-multi-lang-v1_0",
+      "model_file": "model.onnx",
+      "voices_file": "voices.bin",
+      "tokens_file": "tokens.txt",
+      "data_dir": "espeak-ng-data",
+      "lexicon_files": ["lexicon-us-en.txt", "lexicon-zh.txt"]
+    }
+  }
+}

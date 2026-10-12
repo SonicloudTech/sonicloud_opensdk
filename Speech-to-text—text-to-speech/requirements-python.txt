@@ -1,0 +1,4 @@
+# Shared offline ASR/TTS capability powered by sherpa-onnx.
+sherpa-onnx
+soundfile>=0.12
+numpy>=1.24

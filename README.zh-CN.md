@@ -17,7 +17,7 @@
 | 资源 | 适用对象 | 内容 |
 | --- | --- | --- |
 | 移动端 SDK | Android、iOS、鸿蒙及 Flutter 开发者 | 平台封装、蓝牙搜索连接、录音控制、实时音频、文件传输、Wi-Fi、OTA、设备信息和事件回调 |
-| Windows/macOS Demo | PC 应用和工具开发者 | Python BLE 协议实现、命令行 REPL、Web 控制台、离线语音转文字 |
+| Windows/macOS Demo | PC 应用和工具开发者 | Python BLE 协议实现、命令行 REPL、Web 控制台、可复用离线 ASR/TTS |
 | 协议与测试资料 | 需要深度定制的团队 | BLE GATT、帧格式、CRC、文件下载、录音事件和兼容策略 |
 | 集成与方案文档 | 硬件方案商、App 团队和项目评审人员 | 三端 SDK 集成流程，以及标准 BLE 指令 SDK 的技术方案说明 |
 
@@ -30,6 +30,7 @@
 - 获取电量、容量、固件版本、SN、授权码、录音状态、时长、增益等设备信息
 - 通过 BLE 控制设备 Wi-Fi 热点，再以 Wi-Fi/TCP 传输录音文件或固件；纯 BLE 不承担 OTA 固件传输
 - 在 Windows/macOS Demo 中完成扫描、连接、巡检、录音控制、文件下载、试听和转写验证
+- 提供独立的 sherpa-onnx 离线 Voice Engine，包含 SenseVoice ASR、Kokoro 中英文 TTS、模型清单、SHA-256 校验，以及 Flutter/Android/iOS 移动端桥接入口
 - 以标准命令和 VendorAdapter 适配新芯片、新型号及行业 App，减少硬件和应用的重复联调
 
 ## 目录导航
@@ -41,7 +42,7 @@ recorder/
 ├── pnote-harmony-sdk/                  # 鸿蒙 HAR SDK
 ├── pnote-sdk-flutter-demo-main/        # Flutter 联调 Demo
 ├── pnote-web-win&Mac-demo/             # BLE 命令行与 Web Demo
-│   ├── recorder/                       # 协议、BLE、设备会话、ASR、Web 后端
+│   ├── recorder/                       # 协议、BLE、设备会话和 Web 后端
 │   ├── web/                            # 前端页面
 │   ├── tests/                          # 协议与设备模拟测试
 │   └── docs/协议.md                    # CB08 通讯协议 V1.0
@@ -77,15 +78,18 @@ record> download 0
 record> transcribe 0
 ```
 
-完整命令见 [桌面 Demo README](pnote-web-win%26Mac-demo/README.md)。离线转写和 Web 页面为可选能力：
+完整命令见 [桌面 Demo README](pnote-web-win%26Mac-demo/README.md)。离线语音统一放在 [独立语音目录](Speech-to-text%E2%80%94text-to-speech/README.md)，Web 页面为可选能力：
 
 ```bash
-pip install -r requirements-asr.txt
+cd "../Speech-to-text—text-to-speech"
+pip install -r requirements-python.txt
+python scripts/fetch_voice_models.py --all
+cd "../pnote-web-win&Mac-demo"
 pip install -r requirements-web.txt
 python -m unittest discover tests -v
 ```
 
-首次转写会从 ModelScope 下载约 900 MB 模型，之后可离线运行。
+模型下载地址、版本和 SHA-256 固定在 `models/manifest.json`；模型权重不提交到普通 Git 历史。旧 FunASR 回退仍可通过 `requirements-asr.txt` 和 `SONICLOUD_VOICE_BACKEND=funasr` 启用。
 
 ### pnote-web-win&Mac-demo
 

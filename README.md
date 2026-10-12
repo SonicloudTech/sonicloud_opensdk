@@ -17,7 +17,7 @@ The project demonstrates a layered approach to recorder hardware integration: st
 | Resource | Audience | Contents |
 | --- | --- | --- |
 | Mobile SDKs | Android, iOS, HarmonyOS, and Flutter developers | Platform wrappers, BLE discovery and connection, recording control, real-time audio, file transfer, Wi-Fi, OTA, device information, and event callbacks |
-| Windows/macOS demo | Desktop application and tool developers | Python BLE protocol implementation, command-line REPL, Web console, and offline speech-to-text |
+| Windows/macOS demo | Desktop application and tool developers | Python BLE protocol implementation, command-line REPL, Web console, and recorder controls |
 | Protocol and test material | Teams that need hardware-level customization | BLE GATT, frame format, CRC, file downloads, recording events, and compatibility rules |
 | Integration guides | Hardware vendors, app teams, and technical reviewers | Multiplatform SDK integration and the standard BLE command architecture |
 
@@ -29,7 +29,8 @@ The project demonstrates a layered approach to recorder hardware integration: st
 - File listing, segmented downloads by filename and offset, resume support, validation, local storage, and deletion.
 - Battery, capacity, firmware version, serial number, authorization code, recording state, duration, and gain information.
 - BLE-controlled Wi-Fi setup followed by Wi-Fi/TCP transfer for recordings or firmware. BLE is used for OTA control, not for the firmware payload.
-- A Windows/macOS desktop demo for scanning, connection checks, recording control, file downloads, playback, streaming, and transcription.
+- A Windows/macOS desktop demo for scanning, connection checks, recording control, file downloads, playback, and streaming.
+- An isolated offline Voice Engine based on sherpa-onnx, with SenseVoice ASR, Kokoro multilingual TTS, model manifests, SHA-256 verification, and Flutter/Android/iOS bridge entry points.
 - Standard commands and a `VendorAdapter` boundary for adding chipsets, device models, and industry applications without duplicating integration work.
 
 ## Repository layout
@@ -41,10 +42,11 @@ sonicloud_opensdk/
 ├── pnote-harmony-sdk/                  # HarmonyOS HAR SDK
 ├── pnote-sdk-flutter-demo-main/        # Flutter integration demo
 ├── pnote-web-win&Mac-demo/             # BLE REPL and Web demo
-│   ├── recorder/                       # Protocol, BLE, device session, ASR, and Web backend
+│   ├── recorder/                       # Protocol, BLE, device session, and Web backend
 │   ├── web/                            # Front-end page
 │   ├── tests/                          # Protocol and device-simulation tests
 │   └── docs/协议.md                    # CB08 communication protocol V1.0
+├── Speech-to-text—text-to-speech/      # Isolated offline ASR/TTS and mobile bridges
 ├── img/                                # Project images
 │   ├── 录音卡片.png                     # Product image
 │   ├── 硬件参数.png                     # Hardware specifications
@@ -77,19 +79,22 @@ record> download 0
 record> transcribe 0
 ```
 
-See the [desktop demo README](pnote-web-win%26Mac-demo/README.md) for the complete command list. Offline transcription and the web page are optional features:
+See the [desktop demo README](pnote-web-win%26Mac-demo/README.md) for the complete command list. Offline voice is isolated in [Speech-to-text—text-to-speech](Speech-to-text%E2%80%94text-to-speech/README.md); the Web page remains optional:
 
 ```bash
-pip install -r requirements-asr.txt
+cd "../Speech-to-text—text-to-speech"
+pip install -r requirements-python.txt
+python scripts/fetch_voice_models.py --all
+cd "../pnote-web-win&Mac-demo"
 pip install -r requirements-web.txt
 python -m unittest discover tests -v
 ```
 
-The first transcription run downloads approximately 900 MB of model data from ModelScope. Later runs can work offline.
+Model archives are pinned in `Speech-to-text—text-to-speech/models/manifest.json`, downloaded from official sherpa-onnx releases, and verified with SHA-256 before extraction. Model weights are intentionally kept out of normal Git history. The existing SDK remains unchanged.
 
 ### Windows/macOS Web demo
 
-The desktop demo provides both a command-line REPL and a browser-based Web console for device discovery, connection checks, recording control, file downloads, WAV playback, real-time streaming, and offline transcription.
+The desktop demo provides both a command-line REPL and a browser-based Web console for device discovery, connection checks, recording control, file downloads, WAV playback, and real-time streaming. Offline ASR/TTS is maintained separately under `Speech-to-text—text-to-speech` so the existing SDK remains unchanged.
 
 ![SoniCloud recorder BLE console](pnote-web-win%26Mac-demo/%E5%BD%95%E9%9F%B3%E5%8D%A1%20ble%20%E6%8E%A7%E5%88%B6%E5%8F%B0.png)
 

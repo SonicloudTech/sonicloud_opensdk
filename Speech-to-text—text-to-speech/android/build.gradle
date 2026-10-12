@@ -1,0 +1,40 @@
+group 'com.sonicloud.voice'
+version '0.1.0'
+
+buildscript {
+    ext.kotlin_version = '2.1.0'
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath "com.android.tools.build:gradle:8.9.1"
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+    }
+}
+
+apply plugin: 'com.android.library'
+apply plugin: 'kotlin-android'
+
+android {
+    namespace 'com.sonicloud.voice'
+    compileSdk 35
+
+    defaultConfig {
+        minSdk 21
+    }
+
+    sourceSets {
+        main.java.srcDirs += 'src/main/kotlin'
+    }
+}
+
+repositories {
+    google()
+    mavenCentral()
+}
+
+dependencies {
+    implementation fileTree(dir: '../native/android', include: ['*.aar'])
+    implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
+}
