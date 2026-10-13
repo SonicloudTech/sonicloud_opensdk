@@ -71,6 +71,18 @@
    - 定位权限
    - 附近 Wi-Fi 设备权限（Android 13+）
 
+## iOS 打包与版本号
+
+iOS 版本号由 `pubspec.yaml` 的 `version` 统一管理。例如，`version: 4.0.3+2` 对应 App 显示版本 `4.0.3` 与构建版本 `2`。
+
+修改版本号后、使用 Xcode Archive 或 Flutter 打包前，执行以下命令重新生成 iOS 构建配置：
+
+```bash
+flutter build ios --config-only --no-codesign
+```
+
+不要手动修改 `ios/Flutter/Generated.xcconfig`，该文件由 Flutter 自动生成并会被覆盖。
+
 ## 联调说明
 
 - Flutter 侧核心入口：`lib/provider_record_pen.dart`

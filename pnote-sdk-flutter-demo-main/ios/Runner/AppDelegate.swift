@@ -43,6 +43,36 @@ import UIKit
                 }
                 
                 result(nil)
+            case "authkeyConnect":
+                guard let args = call.arguments as? [String: Any],
+                      let authkey = args["authkey"] as? String else {
+                    result(FlutterError(code: "INVALID_AUTHKEY", message: "AuthKey 需为十六进制字符串", details: nil))
+                    return
+                }
+                PNode.shared().authkeyConnect(authkey)
+                result(nil)
+            /* 新版 SDK 已移除 AuthKey 修改和解绑接口。
+            case "resetAuthkey":
+                guard let args = call.arguments as? [String: Any],
+                      let authkey = args["authkey"] as? String else {
+                    result(FlutterError(code: "INVALID_AUTHKEY", message: "AuthKey 需为十六进制字符串", details: nil))
+                    return
+                }
+                PNode.shared().resetAuthkey(authkey)
+                result(nil)
+            case "unbondAuthkey":
+                PNode.shared().unbondAuthkey()
+                result(nil)
+            */
+            case "setWifiPassword":
+                guard let args = call.arguments as? [String: Any],
+                      let password = args["password"] as? String,
+                      (8...16).contains(password.utf16.count) else {
+                    result(FlutterError(code: "INVALID_PASSWORD", message: "热点密码需为 8-16 个字符", details: nil))
+                    return
+                }
+                PNode.shared().setWifiPassword(password)
+                result(nil)
             case "close"://断开链接
                 PNode.shared().closeConnect()
                 result(nil)
@@ -196,6 +226,11 @@ import UIKit
                 PNode.shared().connectDeviceWiFi()
              
                 result(nil)
+            case "quickConnectDeviceWiFi":
+
+                PNode.shared().quickConnectDeviceWiFi(withWiFiTimeout: 30, tcpTimeout: 10)
+
+                result(nil)
             case "disconnectDeviceWiFi":
 
                 PNode.shared().disconnectDeviceWiFi()
@@ -204,6 +239,42 @@ import UIKit
             case "getWiFiHotspotState":
                 PNode.shared().getWiFiHotspotState()
                 result(nil)
+            /* 新版 SDK 已移除设备名称及 Wi-Fi 直传接口。
+            case "setDeviceName":
+                guard let args = call.arguments as? [String: Any],
+                      let name = args["name"] as? String else {
+                    result(FlutterError(code: "INVALID_ARGUMENT", message: "设备名称不能为空", details: nil))
+                    return
+                }
+                PNode.shared().setDeviceName(name)
+                result(nil)
+            case "resetDeviceName":
+                PNode.shared().resetDeviceName()
+                result(nil)
+            case "setWifiDirect":
+                guard let args = call.arguments as? [String: Any],
+                      let ssid = args["ssid"] as? String,
+                      let password = args["password"] as? String else {
+                    result(FlutterError(code: "INVALID_ARGUMENT", message: "Wi-Fi 名称和密码不能为空", details: nil))
+                    return
+                }
+                PNode.shared().setWiFiDirectSSID(ssid, password: password)
+                result(nil)
+            case "setRemoteUrl":
+                guard let args = call.arguments as? [String: Any],
+                      let url = args["url"] as? String else {
+                    result(FlutterError(code: "INVALID_ARGUMENT", message: "上传 URL 不能为空", details: nil))
+                    return
+                }
+                PNode.shared().setRemoteURL(url)
+                result(nil)
+            case "resetWifiDirect":
+                PNode.shared().resetWiFiDirect()
+                result(nil)
+            case "getWifiDirect":
+                PNode.shared().getWiFiDirect()
+                result(nil)
+            */
             case "requestDeviceGotoOtaMode":
                 PNode.shared().requestDeviceGotoOtaMode()
                 result(nil)
@@ -231,6 +302,18 @@ import UIKit
                 } else {
                     print("参数错误，state 缺失")
                 }
+                result(nil)
+            case "getBKHDVersion":
+                PNode.shared().getBKHDVersion()
+                result(nil)
+            case "setBK_UPGRADEHD":
+                guard let args = call.arguments as? [String: Any],
+                      let url = args["url"] as? String,
+                      !url.isEmpty else {
+                    result(FlutterError(code: "INVALID_ARGUMENT", message: "BK 升级 URL 不能为空", details: nil))
+                    return
+                }
+                PNode.shared().setBKUpgradeHD(url)
                 result(nil)
             default:
                 result(nil)
