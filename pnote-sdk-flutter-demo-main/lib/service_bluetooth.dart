@@ -38,6 +38,29 @@ class RecordPenBluetoothService {
     }
   }
 
+  /// 蓝牙连接后认证，十六进制 AuthKey 字符串直接交给 SDK 处理。
+  Future<void> authkeyConnect(String authkey) async {
+    await _methodChannel.invokeMethod('authkeyConnect', {'authkey': authkey});
+  }
+
+  /// 修改 AuthKey，十六进制字符串直接交给 SDK 校验和转换。
+  Future<void> resetAuthkey(String authkey) async {
+    await _methodChannel.invokeMethod('resetAuthkey', {'authkey': authkey});
+  }
+
+  /// 解除绑定并恢复出厂默认 AuthKey。
+  Future<void> unbondAuthkey() async {
+    await _methodChannel.invokeMethod('unbondAuthkey');
+  }
+
+  /// 设置设备热点密码，下次开启热点时生效。
+  Future<void> setWifiPassword(String password) async {
+    if (password.length < 8 || password.length > 16) {
+      throw const FormatException('热点密码需为 8-16 个字符');
+    }
+    await _methodChannel.invokeMethod('setWifiPassword', {'password': password});
+  }
+
   /// 断开连接
   Future<void> disconnect() async {
     try {
@@ -219,5 +242,20 @@ class RecordPenBluetoothService {
   ///getDeviceVersion
   Future<void> getDeviceVersion() async {
     return await _methodChannel.invokeMethod('getDeviceVersion');
+  }
+
+  /// 获取 BK 版本号
+  Future<void> getBKHDVersion() async {
+    await _methodChannel.invokeMethod('getBKHDVersion');
+  }
+
+  /// 发送 BK 升级 URL（下发前 URIEncode）
+  Future<void> setBKUpgradeHd(String url) async {
+    final encoded = Uri.encodeComponent(url);
+    Log.d('BK 升级 URL encode: $url -> $encoded');
+    await _methodChannel.invokeMethod('setBK_UPGRADEHD', {
+      /// 不能下发UrIEncoded的URL，否则小机反馈失败
+      'url': url,
+    });
   }
 }

@@ -1,13 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:path_provider/path_provider.dart';
+import 'package:soni_sdk_demo/service_bk_http.dart';
 import 'package:soni_sdk_demo/service_bluetooth.dart';
-import 'package:soni_sdk_demo/bluetooth_constants.dart';
 import 'package:soni_sdk_demo/service_record.dart';
 import 'package:soni_sdk_demo/service_system_ability.dart';
 import 'package:wifi_iot/wifi_iot.dart';
@@ -29,22 +29,145 @@ class AudioDataType {
   static const file = 'file';
 }
 
+class RecordFileInfo {
+  final String name;
+  final int sizeBytes;
+  final int durationSec;
+
+  RecordFileInfo({
+    required this.name,
+    required this.sizeBytes,
+    required this.durationSec,
+  });
+
+  String get sizeKbLabel => '${(sizeBytes / 1024).toStringAsFixed(1)}kb';
+
+  String get durationMinLabel => '${(durationSec / 60).toStringAsFixed(1)}min';
+
+  String get displayLabel => '$name  $sizeKbLabel  $durationMinLabel';
+}
+
+class _AudioRateStats {
+  double? _currentBytesPerSecond;
+  double? _minBytesPerSecond;
+  double? _maxBytesPerSecond;
+  int _windowBytes = 0;
+  DateTime? _windowStartedAt;
+  DateTime? _lastDataAt;
+  int _totalBytes = 0;
+  DateTime? _startedAt;
+
+  void reset() {
+    _totalBytes = 0;
+    _startedAt = null;
+    _resetWindow();
+  }
+
+  void _resetWindow() {
+    _currentBytesPerSecond = null;
+    _minBytesPerSecond = null;
+    _maxBytesPerSecond = null;
+    _windowBytes = 0;
+    _windowStartedAt = null;
+    _lastDataAt = null;
+  }
+
+  bool record(int bytes) {
+    if (bytes <= 0) return false;
+
+    final now = DateTime.now();
+    var didReset = false;
+    if (_lastDataAt != null &&
+        now.difference(_lastDataAt!) > const Duration(seconds: 2)) {
+      _resetWindow();
+      didReset = true;
+    }
+    _lastDataAt = now;
+    _startedAt ??= now;
+    _totalBytes += bytes;
+
+    _windowStartedAt ??= now;
+    _windowBytes += bytes;
+    final elapsedMs = now.difference(_windowStartedAt!).inMilliseconds;
+    if (elapsedMs < 1000) return didReset;
+
+    final rate = _windowBytes * 1000 / elapsedMs;
+    _currentBytesPerSecond = rate;
+    _minBytesPerSecond = _minBytesPerSecond == null
+        ? rate
+        : math.min(_minBytesPerSecond!, rate);
+    _maxBytesPerSecond = _maxBytesPerSecond == null
+        ? rate
+        : math.max(_maxBytesPerSecond!, rate);
+    _windowBytes = 0;
+    _windowStartedAt = now;
+    return true;
+  }
+
+  String _formatRate(double? bytesPerSecond) {
+    if (bytesPerSecond == null) return '--';
+    return '${(bytesPerSecond / 1024).toStringAsFixed(1)}KB/s';
+  }
+
+  String get currentLabel => _formatRate(_currentBytesPerSecond);
+  String get minLabel => _formatRate(_minBytesPerSecond);
+  String get maxLabel => _formatRate(_maxBytesPerSecond);
+  String get averageLabel {
+    if (_startedAt == null || _lastDataAt == null) return '--';
+    final elapsedUs = _lastDataAt!.difference(_startedAt!).inMicroseconds;
+    if (elapsedUs <= 0) return '--';
+    return _formatRate(_totalBytes * Duration.microsecondsPerSecond / elapsedUs);
+  }
+
+  String get summary => '当前 $currentLabel，最低 $minLabel，最高 $maxLabel';
+}
+
 class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
   // 🔧 服务实例（抱歐）
   final _bluetoothService = RecordPenBluetoothService();
   final _recordService = RecordPenRecordService();
 
-  // String transFileName = "note20260109-090905.opus"; // 46分钟
-  // = "call20260115-174208.opus"; // 6分钟
-  late String _transFileName;
+  String _transFileName = '';
 
   String get transFileName => _transFileName;
+
+  final List<RecordFileInfo> _recordFiles = [];
+
+  List<RecordFileInfo> get recordFiles => List.unmodifiable(_recordFiles);
+
+  List<String> get recordFileNames =>
+      _recordFiles.map((e) => e.name).toList(growable: false);
+
+  final Map<String, _AudioRateStats> _audioRateStats = {
+    AudioDataType.record: _AudioRateStats(),
+    AudioDataType.file: _AudioRateStats(),
+  };
+  int _transferPacketNumber = 0;
+
+  bool _audioDecodeAndStoreEnabled = true;
+
+  bool get audioDecodeAndStoreEnabled => _audioDecodeAndStoreEnabled;
 
   // 连接成功后是否自动传输
   final bool _isAutoTransfer = false;
 
   setTransFileName(String fileName) {
+    if (_transFileName == fileName) return;
     _transFileName = fileName;
+    notifyListeners();
+  }
+
+  void setAudioDecodeAndStoreEnabled(bool enabled) {
+    if (_audioDecodeAndStoreEnabled == enabled) return;
+    _audioDecodeAndStoreEnabled = enabled;
+    notifyListeners();
+  }
+
+  void _clearRecordFileList() {
+    if (_recordFiles.isEmpty && _transFileName.isEmpty) return;
+    _recordFiles.clear();
+    _transFileName = '';
+    notifyListeners();
   }
 
   // 前后台状态
@@ -174,22 +297,44 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
     return List<int>.from((data as TypedData).buffer.asUint8List());
   }
 
-/// 发送音频帧的方法
-///
-/// 该方法将音频数据分割并添加到流控制器中，以便后续处理或传输
-///
-/// @param audioType 音频类型，用于标识音频数据的格式或编码方式
-/// @param data 音频数据，以字节列表形式提供
+  /// 发送音频帧的方法
+  ///
+  /// 该方法将音频数据分割并添加到流控制器中，以便后续处理或传输
+  ///
+  /// @param audioType 音频类型，用于标识音频数据的格式或编码方式
+  /// @param data 音频数据，以字节列表形式提供
   void _emitAudioFrames(String audioType, List<int> data) {
     /// A 款：80ms/160字节，一包 4 帧，每帧 40 字节（20ms）
     /// B 款：解密后 400 字节，一包 5 帧，每帧 80 字节
+    if (audioType == AudioDataType.file) {
+      Log.d(
+        '[蓝牙调试][文件传输] 接收包编号: $_transferPacketNumber, 数据包长度: ${data.length} 字节',
+      );
+      _transferPacketNumber++;
+    }
+    final updated = _audioRateStats
+        .putIfAbsent(audioType, _AudioRateStats.new)
+        .record(data.length);
+    if (updated) notifyListeners();
+    if (!_audioDecodeAndStoreEnabled) return;
     for (final item in _splitData(data)) {
       streamController.add({"audioType": audioType, "audio": item});
     }
   }
 
+  void resetAudioRate(String audioType) {
+    _audioRateStats.putIfAbsent(audioType, _AudioRateStats.new).reset();
+    notifyListeners();
+  }
+
+  String audioRateSummary(String audioType) =>
+      _audioRateStats.putIfAbsent(audioType, _AudioRateStats.new).summary;
+
+  String audioAverageRateLabel(String audioType) =>
+      _audioRateStats.putIfAbsent(audioType, _AudioRateStats.new).averageLabel;
+
   List<List<int>> _splitData(List<int> data) {
-    final blockSize = deviceAes256Gcm ? 80 : 40;
+    final blockSize = 40;
     final result = <List<int>>[];
 
     int index = 0;
@@ -230,7 +375,8 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
       } else if (event is Uint8List) {
         _emitAudioFrames(AudioDataType.record, event.toList());
         return;
-      } else if (event is String && (event.startsWith('send:')|| event.startsWith('rev:'))) {
+      } else if (event is String &&
+          (event.startsWith('send:') || event.startsWith('rev:'))) {
         streamController.add({'SDK': event});
         return;
       } else {
@@ -279,8 +425,15 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
         case "12":
           _handleDeviceWiFiStateEvent(map);
           break;
+        case "13":
         case "14":
-          _handleDeleteEvent(map);
+        case "15":
+        case "16":
+          if (cmd == "14") {
+            _handleDeleteEvent(map);
+          } else {
+            _handleAdditionalCommandEvent(cmd, map);
+          }
           break;
         case "17":
           _handleDeviceFirewareVersion(map);
@@ -309,10 +462,27 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
           //     low_power_state    0 不是  1是
           break;
         case "23":
+
           /// 设置低功耗录音模式状态返回
           /// low_power_state=0 表示成功，=1 表示失败
           final data = map['data'] as Map<String, dynamic>? ?? {};
           final lowPowerState = data['low_power_state']?.toString() ?? "0";
+          break;
+        case "31":
+        case "32":
+        case "33":
+        case "34":
+          // AuthKey 和热点密码操作结果已通过 streamController 转发到页面日志。
+          break;
+        case "24":
+        case "25":
+        case "26":
+        case "27":
+        case "28":
+        case "29":
+        case "30":
+        case "40":
+          _handleAdditionalCommandEvent(cmd, map);
           break;
         default:
           Log.w("未知的 cmd: $cmd");
@@ -320,6 +490,67 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
     } catch (e, t) {
       Log.e("$e $t \n ${event.runtimeType}");
     }
+  }
+
+  void _handleAdditionalCommandEvent(String cmd, Map<String, dynamic> map) {
+    final rawData = map['data'];
+    final data = rawData is Map
+        ? Map<String, dynamic>.from(rawData)
+        : <String, dynamic>{};
+
+    switch (cmd) {
+      case "13":
+        streamController.add({
+          "设备容量": "剩余${data['residueSpace']}，总计${data['totalSpace']}",
+        });
+        break;
+      case "15":
+        streamController.add({"设备增益": data['gain']?.toString() ?? "未知"});
+        break;
+      case "16":
+        streamController.add({
+          "设置设备增益": _commandResultText(data['gain_state']),
+        });
+        break;
+      case "24":
+        streamController.add({"重点标记": data['key_point']?.toString() ?? "未知"});
+        break;
+      case "25":
+      case "26":
+        final operation = cmd == "25" ? "设置设备名称" : "复位设备名称";
+        streamController.add({
+          "设备名称": "$operation${_commandResultText(data['device_name_state'])}",
+        });
+        break;
+      case "27":
+      case "28":
+        final operation = cmd == "27" ? "设置直连Wi-Fi" : "设置上传URL";
+        streamController.add({
+          "直连Wi-Fi": "$operation${_commandResultText(data['wifi_direct_state'])}",
+        });
+        break;
+      case "29":
+        streamController.add({"直连Wi-Fi": "复位参数已收到设备回复"});
+        break;
+      case "30":
+        streamController.add({
+          "直连Wi-Fi":
+              "SSID=${data['ssid'] ?? ''}，连接${_commandResultText(data['status'])}",
+        });
+        break;
+      case "40":
+        streamController.add({
+          "BK OTA": "${data['type']?.toString() ?? ""} - ${data['value']?.toString() ?? ""}"
+        });
+        break;
+    }
+  }
+
+  String _commandResultText(dynamic value) {
+    final result = value?.toString();
+    if (result == "0") return "成功";
+    if (result == "1") return "失败";
+    return "结果未知($result)";
   }
 
   /// 处理设备搜索 (cmd=1)
@@ -386,6 +617,7 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
 
         _isAutoConnecting = true;
         stopSearch();
+        _clearRecordFileList();
 
         // 连接成功后
         await ServiceSystemAbility.sleep(2000);
@@ -427,19 +659,42 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   /// 处理文件列表 (cmd=4)
   Future<void> _handleFileListEvent(Map<String, dynamic> map) async {
-    List<dynamic> dataList = map['data'] ?? [];
-    bool isFinish = map['finish'] == '1' || map['finish'] == 1;
+    final raw = map['data'];
+    final dataList = raw is List ? raw : const [];
+    final isFinish = map['finish'] == '1' || map['finish'] == 1;
 
-    // 列表还在接收中（isFinish=false）
-    if (!isFinish && dataList.isNotEmpty) {
-      notifyListeners();
+    for (final item in dataList) {
+      if (item is! Map) continue;
+      final name = item['name']?.toString() ?? '';
+      if (name.isEmpty || _recordFiles.any((e) => e.name == name)) continue;
+      _recordFiles.add(
+        RecordFileInfo(
+          name: name,
+          sizeBytes: _toInt(item['size']),
+          durationSec: _toInt(item['time']),
+        ),
+      );
     }
 
-    // 列表接收完成（isFinish=true）
-    if (isFinish && _isAutoTransfer) {
-      Log.d('📋 文件列表接收完成，共  个文件');
+    if (isFinish) {
+      if (_transFileName.isEmpty ||
+          !_recordFiles.any((e) => e.name == _transFileName)) {
+        _transFileName = _recordFiles.isEmpty ? '' : _recordFiles.first.name;
+      }
+      Log.d('📋 文件列表接收完成，共 ${_recordFiles.length} 个文件');
+    }
+
+    notifyListeners();
+
+    if (isFinish && _isAutoTransfer && _transFileName.isNotEmpty) {
       sendFileFromPenToPhoneWithOffset(transFileName, 0);
     }
+  }
+
+  int _toInt(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '') ?? 0;
   }
 
   /// 处理传输进度 (cmd=5)
@@ -466,6 +721,7 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
   /// 处理文件传输完成 (cmd=5, state=0)
   Future<void> _handleTransferComplete(Map<String, dynamic> data) async {
     Log.d('📋 文件传输完成');
+    notifyListeners();
   }
 
   /// 处理文件传输中 (cmd=5, state=4)
@@ -596,6 +852,23 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
     await _bluetoothService.connect(device);
   }
 
+  /// 蓝牙连接后进行 AuthKey 认证，结果通过 cmd=31 返回。
+  Future<void> authkeyConnect(String authkey) async {
+    await _bluetoothService.authkeyConnect(authkey);
+  }
+
+  Future<void> resetAuthkey(String authkey) async {
+    await _bluetoothService.resetAuthkey(authkey);
+  }
+
+  Future<void> unbondAuthkey() async {
+    await _bluetoothService.unbondAuthkey();
+  }
+
+  Future<void> setWifiPassword(String password) async {
+    await _bluetoothService.setWifiPassword(password);
+  }
+
   // 用于自动连接的设备名称和地址
   Map<String, dynamic>? deviceMap;
   bool _isAutoConnecting = false;
@@ -613,6 +886,7 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
     _isRecording = false;
     _cbc = "-1";
     _sn = "00000000";
+    _clearRecordFileList();
 
     notifyListeners();
     Future.delayed(const Duration(seconds: 5), () {
@@ -633,6 +907,7 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
       // UIUtil.showToast("已经录音，不启动startRecord()");
       return;
     }
+    resetAudioRate(AudioDataType.record);
     await _recordService.startRecord();
   }
 
@@ -672,6 +947,7 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   /// 获取文件列表
   Future<void> getRecordFileList() async {
+    _clearRecordFileList();
     await _bluetoothService.getRecordFileList();
   }
 
@@ -700,12 +976,15 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
     String fileName,
     int offset,
   ) async {
+    _transferPacketNumber = 0;
+    resetAudioRate(AudioDataType.file);
     await _recordService.sendFileFromPenToPhoneWithOffset(fileName, offset);
   }
 
   /// 停止传输文件
   Future<void> stopTransferFile(String fileName) async {
     await _recordService.stopTransferFile(fileName);
+    notifyListeners();
   }
 
   ///返回按键开始录音
@@ -790,7 +1069,7 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   ///连接wifi
-  connectDeviceWiFi() async {
+  connectDeviceWiFi({String? password}) async {
     if (_wifiName.isEmpty) {
       streamController.add({"wifi": "wifiName 为空，无法匹配并连接"});
       return;
@@ -802,11 +1081,12 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
 
     final bool connected = await WiFiForIoTPlugin.connect(
       _wifiName.trim(),
+      password: password,
       joinOnce: true,
       withInternet: false,
-      security: NetworkSecurity.NONE,
+      security: password == null ? NetworkSecurity.NONE : NetworkSecurity.WPA,
     );
-    if(Platform.isAndroid){
+    if (Platform.isAndroid) {
       streamController.add({
         "wifi": connected ? "已发起直连: $_wifiName" : "直连失败: $_wifiName",
       });
@@ -821,7 +1101,6 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
       for (int i = 0; i < 12; i++) {
         await Future.delayed(const Duration(seconds: 1));
         final String? currentSsid = await WiFiForIoTPlugin.getSSID();
-        Log.d("currentSsid: $currentSsid");
         final String normalized = (currentSsid ?? '')
             .replaceAll('"', '')
             .trim()
@@ -855,6 +1134,11 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
     _methodChannel.invokeMethod('disconnectDeviceWiFi');
   }
 
+  /// 一键连接设备 Wi-Fi
+  quickConnectDeviceWiFi() async {
+    await _methodChannel.invokeMethod('quickConnectDeviceWiFi');
+  }
+
   ///获取设备 Wi-Fi 状态
   /// 返回 WiFi 状态字符串，如果超时则返回当前缓存的状态
   /// 0表示打开，1表示关闭或失败，2表示连接成功，3表示断开
@@ -875,6 +1159,39 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
     await _methodChannel.invokeMethod('getWiFiHotspotState');
   }
 
+  /// 设置设备名称，仅支持 2-16 位英文或数字。
+  Future<void> setDeviceName(String name) async {
+    await _methodChannel.invokeMethod('setDeviceName', {'name': name});
+  }
+
+  /// 将设备名称复位为出厂默认值。
+  Future<void> resetDeviceName() async {
+    await _methodChannel.invokeMethod('resetDeviceName');
+  }
+
+  /// 设置直连 Wi-Fi 的 SSID 和密码。
+  Future<void> setWifiDirect(String ssid, String password) async {
+    await _methodChannel.invokeMethod('setWifiDirect', {
+      'ssid': ssid,
+      'password': password,
+    });
+  }
+
+  /// 设置音频直传服务器上传 URL。
+  Future<void> setRemoteUrl(String url) async {
+    await _methodChannel.invokeMethod('setRemoteUrl', {'url': url});
+  }
+
+  /// 将直连 Wi-Fi 参数复位为出厂默认值。
+  Future<void> resetWifiDirect() async {
+    await _methodChannel.invokeMethod('resetWifiDirect');
+  }
+
+  /// 获取当前直连 Wi-Fi 的 SSID 和连接状态。
+  Future<void> getWifiDirect() async {
+    await _methodChannel.invokeMethod('getWifiDirect');
+  }
+
   /// 请求设备进入 OTA 升级模式
   /// 结果通过 EventChannel (cmd=19) 返回，由 WiFiConnectionManager 处理
   Future<void> requestDeviceGotoOtaMode() async {
@@ -886,63 +1203,6 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
   /// 进度通过 EventChannel (cmd=20) 返回
   Future<void> sendOtaFile(String filePath) async {
     await _methodChannel.invokeMethod('sendOtaFile', {'filePath': filePath});
-  }
-
-  /// 将 assets 内的固件文件落地到本地临时目录，返回可供原生读取的真实路径。
-  ///
-  /// 兼容 `assets/update.ufw` 和误写的 `assets/update.utw`。
-  Future<String> _materializeOtaAssetToLocalFile({
-    String preferredAssetPath = 'assets/update.ufw',
-  }) async {
-    final candidates = <String>[
-      preferredAssetPath,
-      if (preferredAssetPath != 'assets/update.ufw') 'assets/update.ufw',
-      if (preferredAssetPath != 'assets/update.utw') 'assets/update.utw',
-    ];
-
-    ByteData? data;
-    String? usedAssetPath;
-    Object? lastError;
-
-    for (final assetPath in candidates) {
-      try {
-        data = await rootBundle.load(assetPath);
-        usedAssetPath = assetPath;
-        break;
-      } catch (e) {
-        lastError = e;
-      }
-    }
-
-    if (data == null || usedAssetPath == null) {
-      throw FlutterError(
-        '无法读取固件 assets，已尝试：${candidates.join(", ")}；lastError=$lastError',
-      );
-    }
-
-    final dir = await getTemporaryDirectory();
-    final ext = usedAssetPath.split('.').last;
-    final fileName =
-        'ota_firmware_${DateTime.now().millisecondsSinceEpoch}.$ext';
-    final file = File('${dir.path}/$fileName');
-
-    final bytes = data.buffer.asUint8List(
-      data.offsetInBytes,
-      data.lengthInBytes,
-    );
-    await file.writeAsBytes(bytes, flush: true);
-
-    return file.path;
-  }
-
-  /// 从 assets 发送 OTA 固件到原生端（原生再读取文件字节并发送给设备）。
-  Future<void> sendOtaAssetFile({
-    String assetPath = 'assets/update.ufw',
-  }) async {
-    final localPath = await _materializeOtaAssetToLocalFile(
-      preferredAssetPath: assetPath,
-    );
-    await sendOtaFile(localPath);
   }
 
   /// cmd 12
@@ -1005,8 +1265,30 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   /// sendFileTimeInterval
   void setSendFileTimeInterval(int interval) {
-    _methodChannel.invokeMethod('sendFileTimeInterval', {
-      'interval': interval,
-    });
+    _methodChannel.invokeMethod('sendFileTimeInterval', {'interval': interval});
+  }
+
+  /// 获取 BK 版本号
+  Future<void> getBKHDVersion() {
+    return _bluetoothService.getBKHDVersion();
+  }
+
+  /// 发送 BK 升级 URL
+  Future<void> setBKUpgradeHd(String url) {
+    return _bluetoothService.setBKUpgradeHd(url);
+  }
+
+  /// 启动本地 HTTP，[firmwareFile] 为文件管理器选出的固件。
+  Future<String> startBkUpgradeHttpServer({required File firmwareFile}) async {
+    final url = await BkUpgradeHttpServer.instance.start(
+      firmwareFile: firmwareFile,
+    );
+    streamController.add({'BK': 'HTTP已启动 $url'});
+    return url;
+  }
+
+  Future<void> stopBkUpgradeHttpServer() async {
+    await BkUpgradeHttpServer.instance.stop();
+    streamController.add({'BK': 'HTTP已停止'});
   }
 }

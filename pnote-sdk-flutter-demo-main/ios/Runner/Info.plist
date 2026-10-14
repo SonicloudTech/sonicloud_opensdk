@@ -26,10 +26,27 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>需要您的蓝牙授权，通过蓝牙链接您的录音笔</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>
 	<string>您的应用需要蓝牙权限以作为外围设备与其他设备进行通信</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_http._tcp</string>
+	</array>
+	<key>NSCellularDataUsageDescription</key>
+	<string>需要使用移动数据访问互联网，用于请求接口、拉取配置与固件升级等功能</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>需要访问本地网络，以便连接录音笔热点并传输音频、固件数据</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>需要定位权限以获取当前 Wi‑Fi 信息，便于连接录音笔热点</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>在您主动选择媒体文件时，需要访问相册以读取您选择的内容</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>

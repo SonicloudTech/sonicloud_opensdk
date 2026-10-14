@@ -155,6 +155,19 @@
 ///连接设备WiFi
 -(void)connectDeviceWiFi;
 
+///打开设备热点并自动连接热点，TCP连接成功后返回wifi_state=2
+///使用前宿主App必须满足以下条件：
+///1. 在Target > Signing & Capabilities中启用Hotspot Configuration；
+///2. 确保证书和Provisioning Profile包含对应entitlement：
+///   com.apple.developer.networking.HotspotConfiguration；
+///3. App需位于前台，并由用户处理系统可能弹出的WiFi加入确认。
+-(void)quickConnectDeviceWiFi;
+
+///打开设备热点并自动连接热点
+/// @param wifiTimeout WiFi快速连接总超时时间，单位：秒，传入非正数使用默认30秒
+/// @param tcpTimeout 单次TCP连接超时时间，单位：秒，传入非正数使用默认10秒
+-(void)quickConnectDeviceWiFiWithWiFiTimeout:(NSTimeInterval)wifiTimeout tcpTimeout:(NSTimeInterval)tcpTimeout;
+
 ///断开设备WiFi连接
 -(void)disconnectDeviceWiFi;
 
@@ -166,5 +179,11 @@
 
 /// 设置当前设备低功耗录音模式
 -(void)setDeviceLowPowerRecordMode:(int)state;
+
+///AuthKey十六进制认证，64位十六进制字符，支持首尾空白及0x/0X前缀；无效参数不发送，结果JSON cmd=31
+-(void)authkeyConnect:(NSString *)authkey;
+
+///设置设备热点密码，8-16个字符，热点已开启时下次开启生效；结果JSON cmd=34
+-(void)setWifiPassword:(NSString *)password;
 
 @end

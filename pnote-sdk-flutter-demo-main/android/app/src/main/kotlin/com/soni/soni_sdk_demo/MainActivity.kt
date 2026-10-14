@@ -4,7 +4,6 @@ import android.os.Bundle
 import android.util.Log
 import com.soni.soni_sdk_demo.util.AES256GCMUtil
 import com.wind.pnote.ui.DeviceDataListener
-import com.wind.pnote.ui.DevicesLogDataListener
 import com.wind.pnote.ui.LogDataListener
 import com.wind.pnote.ui.PNote
 import io.flutter.embedding.android.FlutterFragmentActivity
@@ -104,6 +103,43 @@ class MainActivity : FlutterFragmentActivity(), DeviceDataListener {
                     PNote.connectDevice(name, address)
 
                     result.success("connect success")
+                }
+
+                "authkeyConnect" -> {
+                    val authkey = call.argument<String>("authkey")
+                    if (authkey == null) {
+                        result.error("INVALID_AUTHKEY", "AuthKey 需为十六进制字符串", null)
+                    } else {
+                        PNote.authkeyConnect(authkey)
+                        result.success(null)
+                    }
+                }
+
+                /* 新版 SDK 已移除 AuthKey 修改和解绑接口。
+                "resetAuthkey" -> {
+                    val authkey = call.argument<String>("authkey")
+                    if (authkey == null) {
+                        result.error("INVALID_AUTHKEY", "AuthKey 需为十六进制字符串", null)
+                    } else {
+                        PNote.ResetAuthkey(authkey)
+                        result.success(null)
+                    }
+                }
+
+                "unbondAuthkey" -> {
+                    PNote.UnbondAuthkey()
+                    result.success(null)
+                }
+
+                */
+                "setWifiPassword" -> {
+                    val password = call.argument<String>("password")
+                    if (password == null || password.length !in 8..16) {
+                        result.error("INVALID_PASSWORD", "热点密码需为 8-16 个字符", null)
+                    } else {
+                        PNote.SetWifiPassword(password)
+                        result.success(null)
+                    }
                 }
 
                 "close" -> {
@@ -299,6 +335,10 @@ class MainActivity : FlutterFragmentActivity(), DeviceDataListener {
                     PNote.connectDeviceWiFi()
                     result.success(null)
                 }
+                "quickConnectDeviceWiFi" -> {
+                    PNote.quickConnectDeviceWiFi(30, 10)
+                    result.success(null)
+                }
                 ///断开设备WiFi连接
                 "disconnectDeviceWiFi" -> {
                     Log.d("开始调用", " PNote.disconnectDeviceWiFi()")
@@ -307,6 +347,36 @@ class MainActivity : FlutterFragmentActivity(), DeviceDataListener {
                     PNote.disconnectDeviceWiFi()
                     result.success(null)
                 }
+                /* 新版 SDK 已移除设备名称及 Wi-Fi 直传接口。
+                "setDeviceName" -> {
+                    val name = call.argument<String>("name") ?: ""
+                    PNote.SetDeviceName(name)
+                    result.success(null)
+                }
+                "resetDeviceName" -> {
+                    PNote.ResetDeviceName()
+                    result.success(null)
+                }
+                "setWifiDirect" -> {
+                    val ssid = call.argument<String>("ssid") ?: ""
+                    val password = call.argument<String>("password") ?: ""
+                    PNote.SetWifi(ssid, password)
+                    result.success(null)
+                }
+                "setRemoteUrl" -> {
+                    val url = call.argument<String>("url") ?: ""
+                    PNote.SetRemoteURL(url)
+                    result.success(null)
+                }
+                "resetWifiDirect" -> {
+                    PNote.ResetWifi()
+                    result.success(null)
+                }
+                "getWifiDirect" -> {
+                    PNote.GetWifi()
+                    result.success(null)
+                }
+                */
                 ///请求设备进入OTA升级模式
                 "requestDeviceGotoOtaMode" -> {
                     Log.d("开始调用", " PNote.requestDeviceGotoOtaMode()")
@@ -353,6 +423,20 @@ class MainActivity : FlutterFragmentActivity(), DeviceDataListener {
                 "sendFileTimeInterval" ->{
                     val timeInterval: Byte = (call.argument<Int>("timeInterval") ?: 13).toByte()
                     PNote.sendFileTimeInterval(timeInterval)
+                }
+
+                /// 获取 BK 版本号
+                "getBKHDVersion" -> {
+                    Log.d("开始调用", "PNote.getBKHDVersion()")
+                    PNote.getBKHDVersion()
+                    result.success(null)
+                }
+                /// 发送 BK 升级 URL
+                "setBK_UPGRADEHD" -> {
+                    val url = call.argument<String>("url") ?: ""
+                    Log.d("开始调用", "PNote.setBK_UPGRADEHD() url=$url")
+                    PNote.setBK_UPGRADEHD(url)
+                    result.success(null)
                 }
 
                 else -> {
