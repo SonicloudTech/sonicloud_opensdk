@@ -1,0 +1,21 @@
+name: sonicloud_voice
+description: Isolated offline ASR/TTS bridge for SoniCloud mobile apps.
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: ^3.0.0
+  flutter: ">=3.10.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: com.sonicloud.voice
+        pluginClass: SoniCloudVoicePlugin
+      ios:
+        pluginClass: SoniCloudVoicePlugin

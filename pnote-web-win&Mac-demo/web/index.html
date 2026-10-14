@@ -3,34 +3,34 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>QS668 录音笔 Web 控制台</title>
+<title data-i18n="pageTitle">QS668 Recorder Web Console</title>
 <link rel="stylesheet" href="style.css?v=20260906-layout2">
 </head>
 <body>
 <header>
-  <div class="brand"><span class="brand-mark">Q</span><div><h1>声云录音卡 控制台</h1><span class="eyebrow">BLE 控制台 · AE20</span></div></div>
-  <div class="header-status"><span id="connBadge" class="badge off">未连接</span><span id="mtuText" class="muted"></span></div>
+  <div class="brand"><span class="brand-mark">Q</span><div><h1 data-i18n="brandTitle">SoniCloud Recorder Console</h1><span class="eyebrow" data-i18n="brandEyebrow">BLE Console · AE20</span></div></div>
+  <div class="header-status"><label class="language-picker"><span data-i18n="language">Language</span> <select id="uiLang"><option value="zh-CN">中文</option><option value="en-US">English</option></select></label><span id="connBadge" class="badge off" data-i18n="disconnected">Disconnected</span><span id="mtuText" class="muted"></span></div>
 </header>
 
 <main>
   <!-- 连接管理 -->
   <section>
-    <h2>连接管理</h2>
+    <h2 data-i18n="connection">Connection</h2>
     <div class="row">
-      <button id="scanBtn">扫描</button>
-      <label><input type="checkbox" id="compatChk"> 兼容扫描（列出全部设备）</label>
-      <button id="disconnectBtn" class="danger" disabled>断开</button>
+      <button id="scanBtn" data-i18n="scan">Scan</button>
+      <label><input type="checkbox" id="compatChk"> <span data-i18n="compatScan">Compatibility scan (show all devices)</span></label>
+      <button id="disconnectBtn" class="danger" disabled data-i18n="disconnect">Disconnect</button>
     </div>
     <div id="deviceList" class="device-list"></div>
   </section>
 
   <!-- 设备信息 -->
   <section>
-    <h2>设备信息</h2>
+    <h2 data-i18n="deviceInfo">Device information</h2>
     <div class="row">
-      <button id="infoBtn" data-need-conn>电量/容量/固件</button>
-      <button id="smokeBtn" data-need-conn>只读巡检</button>
-      <button id="synctimeBtn" data-need-conn>同步时间</button>
+      <button id="infoBtn" data-need-conn data-i18n="batteryCapacityFirmware">Battery / capacity / firmware</button>
+      <button id="smokeBtn" data-need-conn data-i18n="readOnlyCheck">Read-only check</button>
+      <button id="synctimeBtn" data-need-conn data-i18n="syncTime">Sync time</button>
     </div>
     <div id="infoPanel" class="kv"></div>
   </section>
@@ -39,12 +39,12 @@
   <div class="primary-column">
   <!-- 文件列表 -->
   <section>
-    <h2>设备文件</h2>
+    <h2 data-i18n="deviceFiles">Device files</h2>
     <div class="row">
-      <button id="filesBtn" data-need-conn>刷新列表</button>
-      <button id="abortBtn" data-need-conn>终止传输(2-7)</button>
-      <button id="deleteAllBtn" class="danger" data-need-conn>删除全部</button>
-      <label>转写语言
+      <button id="filesBtn" data-need-conn data-i18n="refreshList">Refresh list</button>
+      <button id="abortBtn" data-need-conn data-i18n="abortTransfer">Abort transfer (2-7)</button>
+      <button id="deleteAllBtn" class="danger" data-need-conn data-i18n="deleteAll">Delete all</button>
+      <label><span data-i18n="transcriptionLanguage">Transcription language</span>
         <select id="langSel">
           <option value="auto" selected>auto</option>
           <option value="zh">zh</option><option value="en">en</option>
@@ -54,18 +54,18 @@
       </label>
     </div>
     <table id="fileTable" class="hidden">
-      <thead><tr><th>#</th><th>时长/时间</th><th>大小</th><th>文件名</th>
-        <th>操作</th></tr></thead>
+      <thead><tr><th>#</th><th data-i18n="durationTime">Duration / time</th><th data-i18n="size">Size</th><th data-i18n="fileName">File name</th>
+        <th data-i18n="actions">Actions</th></tr></thead>
       <tbody id="fileRows"></tbody>
     </table>
     <div class="row advanced">
-      <span class="muted">高级：</span>
-      <label>序号 <input id="advIndex" type="number" min="0" value="0"></label>
+      <span class="muted" data-i18n="advanced">Advanced:</span>
+      <label><span data-i18n="index">Index</span> <input id="advIndex" type="number" min="0" value="0"></label>
       <label>offset <input id="advOffset" type="number" min="0" value="0"></label>
-      <button id="advDownloadBtn" data-need-conn>续传下载</button>
+      <button id="advDownloadBtn" data-need-conn data-i18n="resumeDownload">Resume download</button>
       <label>start <input id="segStart" type="number" min="0" value="0"></label>
       <label>end <input id="segEnd" type="number" min="0" value="0"></label>
-      <button id="segBtn" data-need-conn>分段下载(2-12)</button>
+      <button id="segBtn" data-need-conn data-i18n="segmentDownload">Segment download (2-12)</button>
     </div>
     <div id="progressWrap" class="hidden">
       <div class="progress"><div id="progressBar"></div></div>
@@ -75,11 +75,11 @@
 
   <!-- 本地文件（下载产物） -->
   <section>
-    <h2>本地文件</h2>
-    <div class="row"><button id="localBtn">刷新本地列表</button></div>
+    <h2 data-i18n="localFiles">Local files</h2>
+    <div class="row"><button id="localBtn" data-i18n="refreshLocal">Refresh local list</button></div>
     <div id="localList"></div>
     <div id="transcribeOut" class="hidden">
-      <h3>转写结果</h3>
+      <h3 data-i18n="transcriptionResult">Transcription result</h3>
       <pre id="transcribeText"></pre>
     </div>
   </section>
@@ -88,55 +88,55 @@
   <!-- 实时转写 -->
   <div class="side-stack">
   <section>
-    <h2>实时转写</h2>
+    <h2 data-i18n="liveTranscription">Live transcription</h2>
     <div class="row">
-      <button data-rt="start" data-need-conn>开始</button>
-      <button data-rt="pause" data-need-conn>暂停</button>
-      <button data-rt="resume" data-need-conn>继续</button>
-      <button data-rt="stop" data-need-conn>停止</button>
+      <button data-rt="start" data-need-conn data-i18n="start">Start</button>
+      <button data-rt="pause" data-need-conn data-i18n="pause">Pause</button>
+      <button data-rt="resume" data-need-conn data-i18n="resume">Resume</button>
+      <button data-rt="stop" data-need-conn data-i18n="stop">Stop</button>
       <span id="rtInfo" class="muted"></span>
     </div>
   </section>
 
   <!-- 录音控制 -->
   <section>
-    <h2>录音控制</h2>
+    <h2 data-i18n="recordingControl">Recording control</h2>
     <div class="row">
-      <button data-rec="start" data-need-conn>开始录音</button>
-      <button data-rec="save" data-need-conn>保存</button>
-      <button data-rec="pause" data-need-conn>暂停</button>
-      <button data-rec="resume" data-need-conn>继续</button>
-      <button data-rec="state" data-need-conn>状态</button>
-      <button data-rec="time" data-need-conn>时长</button>
-      <button data-rec="name" data-need-conn>文件名</button>
+      <button data-rec="start" data-need-conn data-i18n="startRecording">Start recording</button>
+      <button data-rec="save" data-need-conn data-i18n="save">Save</button>
+      <button data-rec="pause" data-need-conn data-i18n="pause">Pause</button>
+      <button data-rec="resume" data-need-conn data-i18n="resume">Resume</button>
+      <button data-rec="state" data-need-conn data-i18n="state">State</button>
+      <button data-rec="time" data-need-conn data-i18n="duration">Duration</button>
+      <button data-rec="name" data-need-conn data-i18n="fileName">File name</button>
     </div>
     <div class="row">
-      <label>增益
+      <label><span data-i18n="gain">Gain</span>
         <select id="gainSel">
-          <option value="1">1 低</option>
-          <option value="2">2 中</option>
-          <option value="3">3 高</option>
+          <option value="1" data-i18n="low">1 Low</option>
+          <option value="2" data-i18n="medium">2 Medium</option>
+          <option value="3" data-i18n="high">3 High</option>
         </select>
       </label>
-      <button id="gainSetBtn" data-need-conn>设置</button>
-      <button id="gainGetBtn" data-need-conn>查询</button>
+      <button id="gainSetBtn" data-need-conn data-i18n="set">Set</button>
+      <button id="gainGetBtn" data-need-conn data-i18n="get">Get</button>
     </div>
   </section>
 
   <!-- 调试 -->
   <section>
-    <h2>调试</h2>
+    <h2 data-i18n="debug">Debug</h2>
     <div class="row">
       <label>TYPE <input id="rawType" type="number" min="0" max="255" value="0"></label>
       <label>CMD <input id="rawCmd" type="number" min="0" max="255" value="3"></label>
-      <label>参数hex <input id="rawParams" placeholder="如 01ff，可空"></label>
-      <button id="rawBtn" data-need-conn>发送命令</button>
+      <label><span data-i18n="paramsHex">Params hex</span> <input id="rawParams" data-i18n-placeholder="paramsPlaceholder" placeholder="e.g. 01ff, optional"></label>
+      <button id="rawBtn" data-need-conn data-i18n="sendCommand">Send command</button>
     </div>
     <div class="row">
-      <label class="grow">完整帧hex
-        <input id="rawFrame" placeholder="5a 03 9e 20 1e 00 02 02 ...">
+      <label class="grow"><span data-i18n="fullFrameHex">Full frame hex</span>
+        <input id="rawFrame" data-i18n-placeholder="framePlaceholder" placeholder="5a 03 9e 20 1e 00 02 02 ...">
       </label>
-      <button id="rawFrameBtn" data-need-conn>直发帧</button>
+      <button id="rawFrameBtn" data-need-conn data-i18n="sendFrame">Send frame</button>
     </div>
   </section>
 
@@ -145,7 +145,7 @@
   <!-- 日志 -->
   <div class="log-column">
   <section class="log-panel">
-    <h2>日志 <button id="clearLogBtn" class="mini">清空</button></h2>
+    <h2><span data-i18n="logs">Logs</span> <button id="clearLogBtn" class="mini" data-i18n="clear">Clear</button></h2>
     <div id="log" class="log"></div>
   </section>
   </div>

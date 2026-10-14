@@ -1,5 +1,7 @@
 # Soni SDK Demo（Flutter）
 
+The app bar includes a language menu for `中文` and `English`. Protocol events and device payloads keep their original values for debugging.
+
 基于 Flutter 的录音笔 SDK 演示工程，用于验证蓝牙连接、录音控制、文件传输、Wi-Fi 连接和 OTA 升级等完整链路。  
 工程通过 `MethodChannel` / `EventChannel` 与 Android / iOS 原生 SDK 通信，适合作为 SDK 联调与功能验收 Demo。
 

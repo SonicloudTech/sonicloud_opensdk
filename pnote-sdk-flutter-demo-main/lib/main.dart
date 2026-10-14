@@ -96,17 +96,17 @@ class _MyHomePageState extends State<MyHomePage> {
   bool _transferWavExists = false;
   String _appVersion = '';
   final TextEditingController _sendFileTimeIntervalController =
-      TextEditingController(text: '13');
+  TextEditingController(text: '13');
   String? _selectedDeviceAddress;
   final TextEditingController _authkeyController = TextEditingController(
     text: '0xae4b1e65f7ba1282d2060876d324253c95e9475307b4e9e14f9a708dcc54b250',
   );
   final TextEditingController _otaFirmwareNameController =
-      TextEditingController();
+  TextEditingController();
   File? _otaFirmwareFile;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final TextEditingController _bkFirmwarePathController =
-      TextEditingController();
+  TextEditingController();
   final TextEditingController _bkUpgradeUrlController = TextEditingController();
   File? _bkFirmwareFile;
 
@@ -135,8 +135,8 @@ class _MyHomePageState extends State<MyHomePage> {
           event['data']?['record_file_state']?.toString() == '0') {
         _appendLog(
           '[传输音频] 结束: 共 $_transferOpusFrames 帧, '
-          'Opus ${(_transferOpusBytes / 1024).toStringAsFixed(1)}KB, '
-          '${_formatDecodedDuration(_transferPcmSamples)}',
+              'Opus ${(_transferOpusBytes / 1024).toStringAsFixed(1)}KB, '
+              '${_formatDecodedDuration(_transferPcmSamples)}',
         );
         if (_recordPenProvider.audioDecodeAndStoreEnabled) {
           _finishTransferAudio();
@@ -233,7 +233,7 @@ class _MyHomePageState extends State<MyHomePage> {
             '3': '已停止',
             '4': '传输中',
           }[state] ??
-          'state=$state';
+              'state=$state';
       return '[文件传输] $stateText${name.isNotEmpty ? ' ($name)' : ''}';
     }
     return event.toString();
@@ -252,8 +252,8 @@ class _MyHomePageState extends State<MyHomePage> {
       final duration = _recordPcmSamples / 16000;
       _appendLog(
         '[录音音频] $_recordOpusFrames 帧, '
-        'Opus ${(_recordOpusBytes / 1024).toStringAsFixed(1)}KB, '
-        '${_formatDecodedDuration(_recordPcmSamples, duration: duration)}',
+            'Opus ${(_recordOpusBytes / 1024).toStringAsFixed(1)}KB, '
+            '${_formatDecodedDuration(_recordPcmSamples, duration: duration)}',
       );
       return;
     }
@@ -268,8 +268,8 @@ class _MyHomePageState extends State<MyHomePage> {
     final duration = _transferPcmSamples / 16000;
     _appendLog(
       '[传输音频] $_transferOpusFrames 帧, '
-      'Opus ${(_transferOpusBytes / 1024).toStringAsFixed(1)}KB, '
-      '${_formatDecodedDuration(_transferPcmSamples, duration: duration)}',
+          'Opus ${(_transferOpusBytes / 1024).toStringAsFixed(1)}KB, '
+          '${_formatDecodedDuration(_transferPcmSamples, duration: duration)}',
     );
   }
 
@@ -429,8 +429,8 @@ class _MyHomePageState extends State<MyHomePage> {
       );
       _appendLog(
         '[录音音频] 结束: 共 $_recordOpusFrames 帧, '
-        'Opus ${(_recordOpusBytes / 1024).toStringAsFixed(1)}KB, '
-        '已解码 ${duration.toStringAsFixed(1)}秒',
+            'Opus ${(_recordOpusBytes / 1024).toStringAsFixed(1)}KB, '
+            '已解码 ${duration.toStringAsFixed(1)}秒',
       );
 
       await _convertPcmToWav(_recordPcmName, _recordWavName);
@@ -568,9 +568,9 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   Future<void> _runDeviceSetting(
-    String title,
-    Future<void> Function() action,
-  ) async {
+      String title,
+      Future<void> Function() action,
+      ) async {
     try {
       await action();
     } catch (e) {
@@ -608,7 +608,7 @@ class _MyHomePageState extends State<MyHomePage> {
     if (password == null || !mounted) return;
     await _runDeviceSetting(
       '修改热点密码',
-      () => _recordPenProvider.setWifiPassword(password),
+          () => _recordPenProvider.setWifiPassword(password),
     );
   }
 
@@ -624,7 +624,7 @@ class _MyHomePageState extends State<MyHomePage> {
     if (password == null || password.isEmpty || !mounted) return;
     await _runDeviceSetting(
       '密码连接',
-      () => _recordPenProvider.connectDeviceWiFi(password: password),
+          () => _recordPenProvider.connectDeviceWiFi(password: password),
     );
   }
 
@@ -764,7 +764,7 @@ class _MyHomePageState extends State<MyHomePage> {
             Expanded(
               child: SingleChildScrollView(
                 keyboardDismissBehavior:
-                    ScrollViewKeyboardDismissBehavior.onDrag,
+                ScrollViewKeyboardDismissBehavior.onDrag,
                 child: Column(
                   spacing: 10,
                   children: <Widget>[
@@ -773,10 +773,10 @@ class _MyHomePageState extends State<MyHomePage> {
                       isDense: true,
                       menuMaxHeight: 280,
                       value:
-                          recordPenProvider.recordFileNames.contains(
-                                recordPenProvider.transFileName,
-                              ) &&
-                              recordPenProvider.transFileName.isNotEmpty
+                      recordPenProvider.recordFileNames.contains(
+                        recordPenProvider.transFileName,
+                      ) &&
+                          recordPenProvider.transFileName.isNotEmpty
                           ? recordPenProvider.transFileName
                           : null,
                       style: const TextStyle(fontSize: 11, color: Colors.black),
@@ -791,42 +791,42 @@ class _MyHomePageState extends State<MyHomePage> {
                           .recordFiles
                           .map(
                             (file) => Align(
-                              alignment: Alignment.centerLeft,
-                              child: SingleChildScrollView(
-                                scrollDirection: Axis.horizontal,
-                                child: Text(
-                                  file.displayLabel,
-                                  maxLines: 1,
-                                  softWrap: false,
-                                  style: const TextStyle(fontSize: 11),
-                                ),
-                              ),
+                          alignment: Alignment.centerLeft,
+                          child: SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: Text(
+                              file.displayLabel,
+                              maxLines: 1,
+                              softWrap: false,
+                              style: const TextStyle(fontSize: 11),
                             ),
-                          )
+                          ),
+                        ),
+                      )
                           .toList(),
                       items: recordPenProvider.recordFiles
                           .map(
                             (file) => DropdownMenuItem<String>(
-                              value: file.name,
-                              child: SingleChildScrollView(
-                                scrollDirection: Axis.horizontal,
-                                child: Text(
-                                  file.displayLabel,
-                                  maxLines: 1,
-                                  softWrap: false,
-                                  style: const TextStyle(fontSize: 11),
-                                ),
-                              ),
+                          value: file.name,
+                          child: SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: Text(
+                              file.displayLabel,
+                              maxLines: 1,
+                              softWrap: false,
+                              style: const TextStyle(fontSize: 11),
                             ),
-                          )
+                          ),
+                        ),
+                      )
                           .toList(),
                       onChanged: recordPenProvider.recordFiles.isEmpty
                           ? null
                           : (value) {
-                              if (value != null) {
-                                recordPenProvider.setTransFileName(value);
-                              }
-                            },
+                        if (value != null) {
+                          recordPenProvider.setTransFileName(value);
+                        }
+                      },
                     ),
                     Column(
                       spacing: 5,
@@ -856,22 +856,22 @@ class _MyHomePageState extends State<MyHomePage> {
                                 items: discoveredDevices
                                     .map(
                                       (device) => DropdownMenuItem<String>(
-                                        value: device['address'],
-                                        child: Text(
-                                          device['address'] ?? '',
-                                          overflow: TextOverflow.ellipsis,
-                                          style: const TextStyle(fontSize: 11),
-                                        ),
-                                      ),
-                                    )
+                                    value: device['address'],
+                                    child: Text(
+                                      device['address'] ?? '',
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(fontSize: 11),
+                                    ),
+                                  ),
+                                )
                                     .toList(),
                                 onChanged: discoveredDevices.isEmpty
                                     ? null
                                     : (value) {
-                                        setState(
-                                          () => _selectedDeviceAddress = value,
-                                        );
-                                      },
+                                  setState(
+                                        () => _selectedDeviceAddress = value,
+                                  );
+                                },
                               ),
                             ),
                             SizedBox(
@@ -880,8 +880,8 @@ class _MyHomePageState extends State<MyHomePage> {
                                 onPressed: _selectedDeviceAddress == null
                                     ? null
                                     : () => _connectSelectedDevice(
-                                        recordPenProvider,
-                                      ),
+                                  recordPenProvider,
+                                ),
                                 child: const Text('连接'),
                               ),
                             ),
@@ -1090,7 +1090,7 @@ class _MyHomePageState extends State<MyHomePage> {
                             }),
                             _buttonItem(
                               "连接(${_recordPenProvider.wifiName})",
-                              () {
+                                  () {
                                 _recordPenProvider.connectDeviceWiFi();
                               },
                             ),
@@ -1238,7 +1238,7 @@ class _MyHomePageState extends State<MyHomePage> {
                           height: 32,
                           child: _buttonItem(
                             'BK OTA 专属设置',
-                            () => _scaffoldKey.currentState?.openEndDrawer(),
+                                () => _scaffoldKey.currentState?.openEndDrawer(),
                             bgColor: Colors.green,
                           ),
                         ),
@@ -1399,38 +1399,38 @@ class _MyHomePageState extends State<MyHomePage> {
           Expanded(
             child: _data.isEmpty
                 ? const Center(
-                    child: Text(
-                      '暂无日志…',
-                      style: TextStyle(
-                        color: Color(0xFF6A6A80),
-                        fontSize: 12,
-                        fontStyle: FontStyle.italic,
-                      ),
-                    ),
-                  )
+              child: Text(
+                '暂无日志…',
+                style: TextStyle(
+                  color: Color(0xFF6A6A80),
+                  fontSize: 12,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            )
                 : ListView.builder(
-                    controller: _scrollController,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
+              controller: _scrollController,
+              padding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 8,
+              ),
+              itemCount: _data.length,
+              itemBuilder: (_, index) {
+                final line = "${_data[index]}";
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 1.5),
+                  child: Text(
+                    line,
+                    style: TextStyle(
+                      color: _logLineColor(line),
+                      fontSize: 12,
+                      height: 1.3,
+                      fontFamily: 'monospace',
                     ),
-                    itemCount: _data.length,
-                    itemBuilder: (_, index) {
-                      final line = "${_data[index]}";
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 1.5),
-                        child: Text(
-                          line,
-                          style: TextStyle(
-                            color: _logLineColor(line),
-                            fontSize: 12,
-                            height: 1.3,
-                            fontFamily: 'monospace',
-                          ),
-                        ),
-                      );
-                    },
                   ),
+                );
+              },
+            ),
           ),
         ],
       ),
@@ -1609,8 +1609,8 @@ class _MyHomePageState extends State<MyHomePage> {
                                 }
                                 url = await _recordPenProvider
                                     .startBkUpgradeHttpServer(
-                                      firmwareFile: file,
-                                    );
+                                  firmwareFile: file,
+                                );
                                 setState(() {
                                   _bkUpgradeUrlController.text = url;
                                 });
@@ -1786,11 +1786,11 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   Widget _buttonItem(
-    String title,
-    Function() onTap, {
-    bool enabled = true,
-    Color? bgColor,
-  }) {
+      String title,
+      Function() onTap, {
+        bool enabled = true,
+        Color? bgColor,
+      }) {
     return FilledButton(
       onPressed: enabled ? onTap : null,
       style: FilledButton.styleFrom(

@@ -1,61 +1,64 @@
-# 声云录音卡 Recorder
+# SoniCloud Recorder SDK
 
-> 一张录音卡片，一套完整的 BLE 接入方案。
+**Languages:** English | [简体中文](README.zh-CN.md)
 
-声云录音卡 Recorder 是面向硬件厂商、软件开发者和行业集成商的开源示例项目。我们以 **录音卡片硬件** 为核心产品，同时开放录音卡 BLE 通讯协议 SDK、跨平台接入示例和桌面端 Demo，帮助团队从“连接设备”快速走到“录音、传输、转写和业务落地”。
+> A recorder card and a complete BLE integration reference.
 
-<img src="img/录音卡片.png" alt="声云录音卡片" width="480" style="max-width: 100%; height: auto;">
+SoniCloud Recorder is an open-source reference project for hardware vendors, software developers, and system integrators. It combines recorder hardware with BLE protocol SDKs, cross-platform integration samples, and a desktop demo to help teams move from device connectivity to recording, transfer, transcription, and product integration.
 
-## 项目定位
+<img src="img/录音卡片.png" alt="SoniCloud recorder card" width="480" style="max-width: 100%; height: auto;">
 
-本项目提供“标准 BLE 指令 + 厂商适配层 + 跨平台 SDK 封装”的录音硬件接入参考。录音卡负责采集和保存音频，SDK 负责 BLE 会话、协议收发、设备状态和数据流管理，应用负责业务 UI、音频解码、存储、转写及行业集成。杰理、蓝讯、炬芯、BK 等方案的服务 UUID、特征值、分包方式和私有命令差异收敛在适配层，应用开发者面向统一接口接入不同硬件。
+## Project overview
 
-本仓库提供四类资源：
+The project demonstrates a layered approach to recorder hardware integration: standard BLE commands, a vendor adaptation layer, and cross-platform SDK wrappers. The recorder card captures and stores audio; the SDK manages BLE sessions, protocol traffic, device state, and data streams; the application owns its UI, audio decoding, storage, transcription, and business integration. Differences between chipsets, including service UUIDs, characteristics, packetization, and private commands, remain inside the adapter layer.
 
-| 资源 | 适用对象 | 内容 |
+## What is included
+
+| Resource | Audience | Contents |
 | --- | --- | --- |
-| 移动端 SDK | Android、iOS、鸿蒙及 Flutter 开发者 | 平台封装、蓝牙搜索连接、录音控制、实时音频、文件传输、Wi-Fi、OTA、设备信息和事件回调 |
-| Windows/macOS Demo | PC 应用和工具开发者 | Python BLE 协议实现、命令行 REPL、Web 控制台、离线语音转文字 |
-| 协议与测试资料 | 需要深度定制的团队 | BLE GATT、帧格式、CRC、文件下载、录音事件和兼容策略 |
-| 集成与方案文档 | 硬件方案商、App 团队和项目评审人员 | 三端 SDK 集成流程，以及标准 BLE 指令 SDK 的技术方案说明 |
+| Mobile SDKs | Android, iOS, HarmonyOS, and Flutter developers | Platform wrappers, BLE discovery and connection, recording control, real-time audio, file transfer, Wi-Fi, OTA, device information, and event callbacks |
+| Windows/macOS demo | Desktop application and tool developers | Python BLE protocol implementation, command-line REPL, Web console, and recorder controls |
+| Protocol and test material | Teams that need hardware-level customization | BLE GATT, frame format, CRC, file downloads, recording events, and compatibility rules |
+| Integration guides | Hardware vendors, app teams, and technical reviewers | Multiplatform SDK integration and the standard BLE command architecture |
 
-## 能做什么
+## Capabilities
 
-- 为 Android、iOS、HarmonyOS 和 Flutter 应用提供统一的扫描、连接、录音控制和设备事件入口
-- 处理实体按键发起的开始、暂停、继续、停止请求，并由 App 确认后执行
-- 接收 16 kHz、单声道、Opus 裸字节实时音频，交给应用自己的解码、播放、ASR 或会议纪要服务
-- 获取录音文件列表，按文件名和 offset 分段下载、断点续传、校验、落盘和删除
-- 获取电量、容量、固件版本、SN、授权码、录音状态、时长、增益等设备信息
-- 通过 BLE 控制设备 Wi-Fi 热点，再以 Wi-Fi/TCP 传输录音文件或固件；纯 BLE 不承担 OTA 固件传输
-- 在 Windows/macOS Demo 中完成扫描、连接、巡检、录音控制、文件下载、试听和转写验证
-- 以标准命令和 VendorAdapter 适配新芯片、新型号及行业 App，减少硬件和应用的重复联调
+- A unified interface model for scanning, connecting, controlling recordings, and receiving device events on Android, iOS, HarmonyOS, and Flutter.
+- Hardware-key recording start, pause, resume, and stop events with explicit application confirmation.
+- Raw 16 kHz mono Opus frames for application-owned decoding, playback, ASR, or meeting-notes services.
+- File listing, segmented downloads by filename and offset, resume support, validation, local storage, and deletion.
+- Battery, capacity, firmware version, serial number, authorization code, recording state, duration, and gain information.
+- BLE-controlled Wi-Fi setup followed by Wi-Fi/TCP transfer for recordings or firmware. BLE is used for OTA control, not for the firmware payload.
+- A Windows/macOS desktop demo for scanning, connection checks, recording control, file downloads, playback, and streaming.
+- An isolated offline Voice Engine based on sherpa-onnx, with SenseVoice ASR, Kokoro multilingual TTS, model manifests, SHA-256 verification, and Flutter/Android/iOS bridge entry points.
+- Standard commands and a `VendorAdapter` boundary for adding chipsets, device models, and industry applications without duplicating integration work.
 
-## 目录导航
+## Repository layout
 
 ```text
-recorder/
+sonicloud_opensdk/
 ├── pnote-android-sdk/                  # Android AAR
-├── pnote-ios-sdk/                      # iOS 静态库与头文件
-├── pnote-harmony-sdk/                  # 鸿蒙 HAR SDK
-├── pnote-sdk-flutter-demo-main/        # Flutter 联调 Demo
-├── pnote-web-win&Mac-demo/             # BLE 命令行与 Web Demo
-│   ├── recorder/                       # 协议、BLE、设备会话、ASR、Web 后端
-│   ├── web/                            # 前端页面
-│   ├── tests/                          # 协议与设备模拟测试
-│   └── docs/协议.md                    # CB08 通讯协议 V1.0
-├── img/                                  # 项目图片资源
-│   ├── 录音卡片.png                       # 产品图片
-│   ├── 硬件参数.png                       # 硬件参数图
-│   └── 企业微信.png                       # 联系二维码
-├── SDK 集成引导.docx                     # SDK 集成流程与平台接入引导
-├── 声云专利交底书-标准BLE指令SDK方案.docx # 标准 BLE 指令 SDK 技术方案参考
-├── demo.mp4                            # 演示视频
+├── pnote-ios-sdk/                      # iOS static library and header
+├── pnote-harmony-sdk/                  # HarmonyOS HAR SDK
+├── pnote-sdk-flutter-demo-main/        # Flutter integration demo
+├── pnote-web-win&Mac-demo/             # BLE REPL and Web demo
+│   ├── recorder/                       # Protocol, BLE, device session, and Web backend
+│   ├── web/                            # Front-end page
+│   ├── tests/                          # Protocol and device-simulation tests
+│   └── docs/协议.md                    # CB08 communication protocol V1.0
+├── Speech-to-text—text-to-speech/      # Isolated offline ASR/TTS and mobile bridges
+├── img/                                # Project images
+│   ├── 录音卡片.png                     # Product image
+│   ├── 硬件参数.png                     # Hardware specifications
+│   └── 微信.png                         # Contact QR code
+├── SDK 集成引导.docx                   # SDK integration guide
+├── demo.mp4                            # Demonstration video
 └── LICENSE                             # MIT License
 ```
 
-## 五分钟运行桌面 Demo
+## Run the desktop demo in five minutes
 
-需要 Python 3.10 以上、可用 BLE 适配器，以及一台处于可连接状态的录音卡。
+Requirements: Python 3.10 or later, a working BLE adapter, and a recorder card that is ready to connect.
 
 ```bash
 cd pnote-web-win&Mac-demo
@@ -65,7 +68,7 @@ pip install -r requirements.txt
 python main.py --web
 ```
 
-浏览器打开 `http://127.0.0.1:8000`。命令行也可这样验证：
+Open `http://127.0.0.1:8000` in a browser. The web console supports Chinese and English; use the selector in the top-right corner to switch languages. You can also verify the command-line REPL:
 
 ```text
 record> scan
@@ -76,27 +79,30 @@ record> download 0
 record> transcribe 0
 ```
 
-完整命令见 [桌面 Demo README](pnote-web-win%26Mac-demo/README.md)。离线转写和 Web 页面为可选能力：
+See the [desktop demo README](pnote-web-win%26Mac-demo/README.md) for the complete command list. Offline voice is isolated in [Speech-to-text—text-to-speech](Speech-to-text%E2%80%94text-to-speech/README.md); the Web page remains optional:
 
 ```bash
-pip install -r requirements-asr.txt
+cd "../Speech-to-text—text-to-speech"
+pip install -r requirements-python.txt
+python scripts/fetch_voice_models.py --all
+cd "../pnote-web-win&Mac-demo"
 pip install -r requirements-web.txt
 python -m unittest discover tests -v
 ```
 
-首次转写会从 ModelScope 下载约 900 MB 模型，之后可离线运行。
+Model archives are pinned in `Speech-to-text—text-to-speech/models/manifest.json`, downloaded from official sherpa-onnx releases, and verified with SHA-256 before extraction. Model weights are intentionally kept out of normal Git history. The existing SDK remains unchanged.
 
-### pnote-web-win&Mac-demo
+### Windows/macOS Web demo
 
-桌面 Demo 位于 [`pnote-web-win&Mac-demo`](pnote-web-win%26Mac-demo/)，同时提供命令行 REPL 和浏览器 Web 控制台，可完成设备扫描、连接巡检、录音控制、文件下载、WAV 试听、实时推流和离线转写。
+The desktop demo provides both a command-line REPL and a browser-based Web console for device discovery, connection checks, recording control, file downloads, WAV playback, and real-time streaming. Offline ASR/TTS is maintained separately under `Speech-to-text—text-to-speech` so the existing SDK remains unchanged.
 
-![录音卡 BLE 控制台](pnote-web-win%26Mac-demo/%E5%BD%95%E9%9F%B3%E5%8D%A1%20ble%20%E6%8E%A7%E5%88%B6%E5%8F%B0.png)
+![SoniCloud recorder BLE console](pnote-web-win%26Mac-demo/%E5%BD%95%E9%9F%B3%E5%8D%A1%20ble%20%E6%8E%A7%E5%88%B6%E5%8F%B0.png)
 
-## 移动端接入
+## Mobile integration
 
-开始接入前，请先阅读 [SDK 集成引导（Word）](SDK%20%E9%9B%86%E6%88%90%E5%BC%95%E5%AF%BC.docx)，了解权限、依赖、初始化、回调、音频处理、文件续传和 OTA 验收流程；需要理解跨厂商标准化设计时，可参考 [标准 BLE 指令 SDK 技术方案](%E5%A3%B0%E4%BA%91%E4%B8%93%E5%88%A9%E4%BA%A4%E5%BA%95%E4%B9%A6-%E6%A0%87%E5%87%86BLE%E6%8C%87%E4%BB%A4SDK%E6%96%B9%E6%A1%88.docx)。
+Before integrating, read the [SDK integration guide](SDK%20%E9%9B%86%E6%88%90%E5%BC%95%E5%AF%BC.docx) for permissions, dependencies, initialization, callbacks, audio processing, resumable file transfer, and OTA acceptance testing. For the cross-vendor standardization model, see the protocol notes and documents included in this repository.
 
-### Flutter 联调工程
+### Flutter
 
 ```bash
 cd pnote-sdk-flutter-demo-main
@@ -104,11 +110,11 @@ flutter pub get
 flutter run
 ```
 
-请使用真机验证蓝牙、录音、Wi-Fi 和 OTA。核心入口是 `lib/provider_record_pen.dart`，详见 [Flutter Demo README](pnote-sdk-flutter-demo-main/README.md)。
+Use a physical device to verify Bluetooth, recording, Wi-Fi, and OTA. The main integration entry point is `lib/provider_record_pen.dart`; see the [Flutter demo README](pnote-sdk-flutter-demo-main/README.md).
 
 ### Android
 
-将 [Android AAR](pnote-android-sdk/pnote_20260728171001.aar) 复制到应用的 `app/libs`（或 `src/main/libs`），添加 `fileTree` 依赖及 SDK 所需的 RxJava、Retrofit、EventBus 等依赖，然后调用：
+Copy the [Android AAR](pnote-android-sdk/pnote_20260827161403.aar) to your app's `app/libs` or `src/main/libs` directory. Add the `fileTree` dependency and the SDK's RxJava, Retrofit, EventBus, and other required dependencies, then call:
 
 ```java
 PNote.init(context, deviceDataListener);
@@ -116,58 +122,62 @@ PNote.startSearch();
 PNote.connectDevice(name, address);
 ```
 
-回调包括 JSON 设备事件、实时录音 OPUS 数据和文件 OPUS 数据。完整接口见 [Android SDK 开发文档](pnote-sdk-flutter-demo-main/android%20SDK开发文档(最新版本)-2026.04.23.md)。
+Callbacks include JSON device events, real-time Opus data, and file Opus data. See the [Android SDK guide](pnote-sdk-flutter-demo-main/android%20SDK%E5%BC%80%E5%8F%91%E6%96%87%E6%A1%A3%28%E6%9C%80%E6%96%B0%E7%89%88%E6%9C%AC%29-2026.04.23.md) for the complete API.
 
 ### iOS
 
-将 [libPNote.a](pnote-ios-sdk/libPNote.a) 与 [PNode.h](pnote-ios-sdk/PNode.h) 加入 Xcode，实现 `WindBleDelegate`，调用 `startSearch`、`connectDeviceAndAddress` 等接口。完整接口和 OTA 流程见 [iOS SDK 开发文档](pnote-sdk-flutter-demo-main/iOS%20SDK开发文档(最新版本)-2026.04.23.md)。
+Add [libPNote.a](pnote-ios-sdk/libPNote.a) and [PNode.h](pnote-ios-sdk/PNode.h) to Xcode, implement `WindBleDelegate`, and call APIs such as `startSearch` and `connectDeviceAndAddress`. See the [iOS SDK guide](pnote-sdk-flutter-demo-main/iOS%20SDK%E5%BC%80%E5%8F%91%E6%96%87%E6%A1%A3%28%E6%9C%80%E6%96%B0%E7%89%88%E6%9C%AC%29-2026.04.23.md) for the complete API and OTA workflow.
 
-### 鸿蒙
+### HarmonyOS
 
-鸿蒙 SDK 以 [har_recordersdk.har](pnote-harmony-sdk/har_recordersdk.har) 提供，当前集成引导按 HarmonyOS API 12+ 编写。将 HAR 引入工程后，申请蓝牙权限并使用扫描回调中的 `deviceId` 连接；该 `deviceId` 可能是系统隐私随机标识，`address` 仅用于展示。业务结果均从 `DEVICE_DATA` 事件异步返回。
+The HarmonyOS SDK is distributed as [har_recordersdk.har](pnote-harmony-sdk/har_recordersdk.har) and currently targets HarmonyOS API 12 or later. Import the HAR package, request Bluetooth permissions, and connect with the `deviceId` returned by the scan callback. This `deviceId` may be a system-generated privacy identifier; the `address` field is for display only. Business results are returned asynchronously through `DEVICE_DATA` events.
 
-## 协议实现要点
+## Protocol implementation notes
 
-- 分层结构：App/业务层 → SDK 核心与状态机 → 标准 BLE 协议层 → VendorAdapter 厂商适配层 → 硬件固件
-- BLE GATT 参考：Service `0xAE20`；写特征 `AE21`；数据通知 `AE22`；按键通知 `AE23`
-- 通用帧：`MAGIC(0x5A) + SEQ + CRC-16/XMODEM + LEN + TYPE/CMD/PARAMS`；按长度缓存、校验、去重、重组并关联请求应答
-- 通知数据支持半帧、多帧、噪声和跨包重组；数据通知与按键通知使用独立解析缓存，发送端按 MTU 分片并保持帧内顺序
-- 关键命令覆盖设备信息、电量容量、录音状态、文件列表/下载、时间同步、按键响应、Wi-Fi 状态、参数设置和 OTA 状态；未知命令应返回可识别错误
-- 文件列表以 `finish=1` 或平台 SDK 的完成状态作为结束条件；下载使用 4 字节小端 `offset`，应用应校验文件大小和音频可解码性
-- 实时录音和文件回调是 Opus 裸字节，基本参数为 16 kHz、单声道、40 字节/帧、20 ms；SDK 不负责解码或生成 WAV 头
-- OTA 先由 BLE 完成模式和环境控制，再由 Wi-Fi/TCP 传输固件；升级前检查电量、版本和 TCP 状态，任一链路断开应停止任务并等待恢复
+- Layering: application/business layer → SDK core and state machine → standard BLE protocol → `VendorAdapter` → device firmware.
+- Reference BLE GATT: service `0xAE20`, write characteristic `AE21`, data notification `AE22`, and key notification `AE23`.
+- Generic frame: `MAGIC(0x5A) + SEQ + CRC-16/XMODEM + LEN + TYPE/CMD/PARAMS`. Buffer by length, validate, deduplicate, reassemble, and correlate responses with requests.
+- Notifications may contain partial frames, multiple frames, or noise across packets. Data and key notifications use independent parser buffers, while the sender fragments frames according to the negotiated MTU and preserves their order.
+- Core commands cover device information, battery and capacity, recording state, file listing and downloads, time synchronization, key responses, Wi-Fi state, parameter settings, and OTA state. Unknown commands should return an identifiable error.
+- Treat a file list as complete when `finish=1` or the platform SDK reports completion. Downloads use a 4-byte little-endian `offset`; the application should validate file size and audio decodability.
+- Real-time recording and file callbacks contain raw Opus bytes. The baseline format is 16 kHz mono, 40 bytes per frame, and 20 ms per frame. The SDK does not decode Opus or generate WAV headers.
+- OTA uses BLE for mode and environment control, then Wi-Fi/TCP for the firmware payload. Check battery, version, and TCP state before upgrading; stop the task if either BLE or Wi-Fi disconnects.
 
-协议字段、命令表、真实抓包帧和兼容策略见 [docs/协议.md](pnote-web-win%26Mac-demo/docs/%E5%8D%8F%E8%AE%AE.md)。
+See the [protocol document](pnote-web-win%26Mac-demo/docs/%E5%8D%8F%E8%AE%AE.md) for field definitions, command tables, captured frames, and compatibility rules.
 
-## 集成建议
+## Integration checklist
 
-1. 先用桌面 Demo 对真实样机完成扫描、连接、时间同步、巡检和至少一个文件下载。
-2. 移动端按目标系统申请蓝牙权限；初始化 SDK 后注册设备事件、实时录音和文件数据回调，再开始扫描。
-3. 使用扫描事件返回的连接标识发起连接；连接成功后先同步时间，再读取电量、容量、版本和文件列表。
-4. 把回调转换到应用自己的事件队列或状态管理层，方法调用只代表请求提交，业务完成以异步事件为准。
-5. 音频按 40 字节 Opus 帧交给独立解码任务；文件按完成状态收尾、记录 offset，并校验大小和可解码性后再展示。
-6. OTA 仅在 Wi-Fi/TCP 建链、版本需要更新且电量不低于 20% 时执行；升级中 BLE 或 Wi-Fi 断开都应标记失败，不要无条件重发完整固件。
-7. 硬件新增芯片或型号时优先扩展 VendorAdapter、能力位和版本协商，不要让厂商私有字段渗透到 App 业务层。
-8. 云端 ASR 密钥、设备授权码和真实录音不得硬编码或提交到仓库；日志和抓包应脱敏。
+1. Use the desktop demo with a real device to verify discovery, connection, time synchronization, a read-only check, and at least one file download.
+2. Request the required Bluetooth permissions for the target platform. Initialize the SDK, register device-event, real-time-audio, and file-data callbacks, and then start discovery.
+3. Connect with the identifier returned by the scan callback. After connection, synchronize time, then read battery, capacity, firmware version, and the file list.
+4. Convert callbacks into the application's event queue or state-management layer. A method call means that a request was submitted; completion is represented by an asynchronous event.
+5. Send 40-byte Opus frames to a dedicated decoder task. Finalize files on the completion event, record the offset, and validate size and decodability before showing them to users.
+6. Run OTA only after Wi-Fi/TCP is connected, an update is needed, and the battery is at least 20 percent. Mark the upgrade as failed if BLE or Wi-Fi disconnects; do not blindly resend the entire firmware.
+7. When adding a chipset or model, extend `VendorAdapter`, capability flags, and version negotiation instead of exposing vendor-private fields to application code.
+8. Never hard-code or commit cloud ASR keys, authorization codes, real recordings, or device identifiers. Redact logs and packet captures before sharing them.
 
-## 适用场景
+## Use cases
 
-适用于会议记录、采访采集、课堂培训、内容创作、巡检记录、智能硬件配套 App、企业礼赠录音设备，以及需要将杰理、蓝讯、炬芯、BK 等方案快速接入同一 App 的软硬件联合项目。硬件方案商可复用标准适配契约，应用团队可复用跨平台业务模型，双方共同扩展录音硬件产品生态。
+The project is suitable for meeting recording and note-taking, interviews, classroom training, content creation, inspection records, companion apps for smart hardware, corporate gift and promotional recorders, and other products that need to integrate multiple recorder chipsets into one application.
 
-## 硬件与商业合作
+## Hardware adaptation and support
 
-合作模式可按“硬件方案适配 + SDK 交付 + 项目服务”推进：方案商提供芯片能力、BLE 服务/特征和私有命令约束，声云在 VendorAdapter 中完成标准化映射；App 团队使用 Android、iOS、HarmonyOS 或 Flutter 接口完成业务集成。批量采购、样机验证、外观/固件定制、行业功能、云端转写和交付支持可按项目评估，具体 SDK 包、版本和授权范围以交付清单及商务协议为准。
+Hardware integration typically follows this sequence: confirm capabilities → implement `VendorAdapter` → integrate the SDK → validate on real hardware. The hardware team should provide chipset capabilities, BLE services and characteristics, private commands, firmware versions, protocol material, and test scenarios. The adapter maps those differences to the standard interface; the application team then uses Android, iOS, HarmonyOS, or Flutter APIs to build the product workflow.
 
-<img src="img/企业微信.png" alt="企业微信" width="200" style="max-width: 100%; height: auto;">
+For hardware specifications, sample devices, the HarmonyOS SDK, complete protocol material, or technical support, contact [SoniCloud](https://www.sinicloud.com/). Include the target platform, expected volume, device model, firmware version, and intended use case.
 
-如需获取硬件规格、样机、鸿蒙 SDK、协议完整版、企业微信二维码或技术支持资料，请联系 **安徽声云**（官网：[sinicloud.com](https://www.sinicloud.com/)）。咨询时请说明目标平台、预计数量和应用场景。
+<img src="img/微信.png" alt="SoniCloud contact QR code" width="200" style="max-width: 100%; height: auto;">
 
-## 许可与使用边界
+## License and usage boundaries
 
-仓库示例代码以 [MIT License](LICENSE) 发布。AAR、静态库、HAR、固件、设备私有协议和部分文档可能包含声云或厂商专有内容，不等同于全部开源，具体使用、再分发和商用范围以随包说明及双方商务协议为准。接口字段、命令编号和行为以最新 SDK、固件、协议版本及真机联调结果为准；SDK 不替代应用侧的 Opus 解码、文件存储、权限管理或安全控制。请勿将私有协议用于未获授权的硬件或产品。
+The example code is released under the [MIT License](LICENSE). AAR files, static libraries, HAR packages, firmware, device-private protocols, and some documents may contain SoniCloud or vendor-owned material and are not necessarily open source. Redistribution and commercial use are governed by the accompanying package terms and applicable agreements.
 
-“标准 BLE 指令 SDK 技术方案”文档用于技术交底和方案沟通，不替代专利代理师的现有技术检索、权利要求布局或法律意见。
+Interfaces, command numbers, and behavior are defined by the current SDK, firmware, protocol version, and real-device validation results. The SDK does not replace application-side Opus decoding, file storage, permission handling, or security controls. Do not use private protocols with hardware or products without authorization.
 
-## 反馈与问题
+## Related repository
 
-提交问题时请附上操作系统与版本、目标平台、SDK/Demo 版本、设备固件版本、复现步骤，以及必要的日志或收发帧 hex。涉及真实设备数据时，请先脱敏序列号、地址、授权码和录音内容。
+- **[SoniCloud Smart Mouse SDK (`mouse-sdk`)](https://github.com/SonicloudTech/mouse-sdk)** ([Gitee mirror](https://gitee.com/SonicloudTech/mouse-sdk)): a cross-platform and cross-architecture smart-mouse SDK for Windows, macOS, and Linux, including UOS, Kylin, and Fangde on x86_64 and ARM64. It provides USB and BLE channels, button/event/audio support, a pure C ABI, and bilingual documentation and samples. The former `uMouse/` directory has moved to that repository.
+
+## Feedback and issues
+
+When filing an issue, include the operating system and version, target platform, SDK/demo version, device firmware version, reproduction steps, and relevant logs or TX/RX frame hex. Redact serial numbers, addresses, authorization codes, recordings, and other real-device data before sharing it.
