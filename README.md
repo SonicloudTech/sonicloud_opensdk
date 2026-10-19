@@ -168,6 +168,10 @@ For hardware specifications, sample devices, the HarmonyOS SDK, complete protoco
 
 <img src="img/微信.png" alt="SoniCloud contact QR code" width="200" style="max-width: 100%; height: auto;">
 
+<br>
+
+**Business & technical contact:** [xu_heng_yu@sinicloud.com](mailto:xu_heng_yu@sinicloud.com)
+
 ## License and usage boundaries
 
 The example code is released under the [MIT License](LICENSE). AAR files, static libraries, HAR packages, firmware, device-private protocols, and some documents may contain SoniCloud or vendor-owned material and are not necessarily open source. Redistribution and commercial use are governed by the accompanying package terms and applicable agreements.

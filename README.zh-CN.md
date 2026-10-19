@@ -165,6 +165,10 @@ PNote.connectDevice(name, address);
 
 <img src="img/微信.png" alt="微信" width="200" style="max-width: 100%; height: auto;">
 
+<br>
+
+**商务与技术联系：** [xu_heng_yu@sinicloud.com](mailto:xu_heng_yu@sinicloud.com)
+
 如需获取硬件规格、样机、鸿蒙 SDK、协议完整版、微信二维码或技术支持资料，请联系 **安徽声云**（官网：[sinicloud.com](https://www.sinicloud.com/)）。咨询时请说明目标平台、预计数量和应用场景。
 
 ## 许可与使用边界
