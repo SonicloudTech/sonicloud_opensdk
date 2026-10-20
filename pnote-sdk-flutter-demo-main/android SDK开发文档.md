@@ -1,6 +1,6 @@
 # SDK开发文档
 
-接口说明更新：2026-10-13。
+接口说明更新：2026-10-19。本次补充 Wi-Fi 直传说明。
 
 ## 一、集成SDK
 
@@ -107,7 +107,7 @@ public interface DeviceDataListener {
     
     注：如果设备端关机等情况断开连接，SDK也会主动上报断开连接的数据；
 
-#### AuthKey 认证（C10）
+#### AuthKey 认证（C10 新增）
 
 以下接口用于支持 AuthKey 的设备，调用前需完成 SDK 初始化并保持蓝牙连接。
 
@@ -146,7 +146,33 @@ String authkey = "00112233445566778899aabbccddeeff00112233445566778899aabbccddee
 PNote.authkeyConnect(authkey);
 ```
 
-AuthKey 调用流程：蓝牙连接成功 → 调用 `authkeyConnect` 使用设备当前 AuthKey 认证 → 等待 `cmd=31` 回调并确认认证成功 → 执行需要认证的设备操作。
+认证使用设备当前 AuthKey，调用 `authkeyConnect` 后需等待设备回调（`cmd=31`）并确认认证成功，再执行需要认证的操作。
+
+#### 设备名称设置与复位
+
+```java
+/// 设置设备名称
+public static void SetDeviceName(String name);
+
+/// 恢复出厂默认设备名称
+public static void ResetDeviceName();
+```
+
+`name` 仅支持 2-16 位英文字母或数字（`[A-Za-z0-9]`），调用前在 App 侧校验。
+
+结果通过 `onDeviceDataEvent(String data)` 返回，设置名称的 `cmd=25`，复位名称的 `cmd=26`，共用以下格式：
+
+```json
+{
+  "cmd": "25",
+  "state": "0",
+  "data": {
+    "device_name_state": "0"
+  }
+}
+```
+
+`device_name_state`：`0` 表示成功，`1` 表示失败。
 
 ### 2、录音
 
@@ -400,14 +426,13 @@ AuthKey 调用流程：蓝牙连接成功 → 调用 `authkeyConnect` 使用设�
 
 #### 快速连接设备 Wi-Fi
 
+当前 SDK 的快速连接仅提供以下三参数方法，不再提供无参或双参重载。有密码和无密码热点均调用此方法，无密码时将 `password` 传为空字符串 `""`。
+
 调用前保持蓝牙连接；需要认证的设备先完成 AuthKey 认证。SDK 打开设备热点、连接热点并建立 TCP，结果通过现有 `cmd=12` 回调返回。只有 `data.wifi_state=2` 才表示 TCP 连接成功，热点打开或手机加入热点的回调不能作为文件传输就绪条件。
 
 ```java
-/// 打开设备热点并自动连接，默认总超时 30 秒、单次 TCP 超时 10 秒
-public static void quickConnectDeviceWiFi();
-
-/// 自定义快速连接超时时间，单位：秒
-public static void quickConnectDeviceWiFi(int wifiTimeout, int tcpTimeout);
+/// 打开设备热点并自动连接，指定超时时间（单位：秒）及热点密码
+public static void quickConnectDeviceWiFi(String password, int wifiTimeout, int tcpTimeout);
 ```
 
 `wifiTimeout` 为快速连接总超时，`tcpTimeout` 为单次 TCP 连接超时。两个参数必须大于 0 且不超过 2147483 秒，并且 `wifiTimeout > tcpTimeout`；否则 SDK 抛出 `IllegalArgumentException`。
@@ -415,10 +440,13 @@ public static void quickConnectDeviceWiFi(int wifiTimeout, int tcpTimeout);
 宿主 App 需完成对应 Android 版本要求的蓝牙、定位及附近 Wi-Fi 权限授权，并处理系统可能弹出的网络连接确认。
 
 ```java
-PNote.quickConnectDeviceWiFi(30, 10);
+// 连接有密码的热点
+PNote.quickConnectDeviceWiFi("12345678", 30, 10);
+// 连接无密码热点，密码必须传入空字符串
+PNote.quickConnectDeviceWiFi("", 30, 10);
 ```
 
-当前快速连接接口未提供热点密码入参。已设置密码的热点请使用手动流程：调用 `openWiFi`，从 `cmd=12` 获取 `wifiName`，通过手机系统或 App 的 Wi-Fi 连接能力使用密码加入该热点，加入成功后再调用 `connectDeviceWiFi` 建立 TCP。
+`password` 为设备热点当前密码；连接无密码热点时传入空字符串 `""`。Demo 点击“一键连接WiFi”后弹出与“密码连接”相同的密码输入框，允许留空；确认后将密码原样传入 SDK，取消则不发起连接。2-16个字符[英文、数字]
 
 #### 设置设备热点密码（C10 新增）
 
@@ -442,7 +470,64 @@ public static void SetWifiPassword(String password);
 
 `wifi_password_state` 为设备返回的操作结果 Code，以十进制字符串上报，具体含义以设备固件协议为准；`state=0` 不等同于密码设置成功。收到设备结果并确认成功后，下次连接热点时使用新密码。
 
-此接口修改的是设备自身热点密码。
+此接口修改的是设备自身热点密码；下方直传 Wi-Fi 接口的 `password` 是设备连接外部网络时使用的密码。
+
+#### Wi-Fi 直传配置
+
+以下接口用于支持 Wi-Fi 直传的设备，调用前保持蓝牙连接。`ssid`、`password` 和上传 URL 使用 UTF-8 编码，单个字段不得超过 65535 字节。
+
+```java
+/// 设置设备直传网络的 SSID 和密码
+public static void SetWifi(String ssid, String password);
+
+/// 设置音频直传服务器上传 URL
+public static void SetRemoteURL(String remoteUrl);
+
+/// 复位直传 Wi-Fi 参数
+public static void ResetWifi();
+
+/// 获取当前直传 Wi-Fi 的 SSID 和连接状态
+public static void GetWifi();
+```
+
+设置 SSID / 密码的结果 `cmd=27`，设置上传 URL 的结果 `cmd=28`，共用以下格式：
+
+```json
+{
+  "cmd": "27",
+  "state": "0",
+  "data": {
+    "wifi_direct_state": "0"
+  }
+}
+```
+
+`wifi_direct_state`：`0` 表示设置成功，`1` 表示设置失败。`cmd=27` 和 `cmd=28` 均使用此字段。
+
+复位参数的回调格式：
+
+```json
+{
+  "cmd": "29",
+  "state": "0",
+  "data": {}
+}
+```
+
+查询当前直传 Wi-Fi 的回调格式：
+
+```json
+{
+  "cmd": "30",
+  "state": "0",
+  "data": {
+    "ssid": "OfficeWiFi",
+    "status": "0"
+  }
+}
+```
+
+`ssid` 为当前直传 Wi-Fi 名称，`status` 为连接状态（`0` 表示成功，`1` 表示失败），此字段仅用于 `cmd=30`。设置参数成功后，可调用查询接口确认设备的直传网络状态。
 
 ### 5、OTA部分
 

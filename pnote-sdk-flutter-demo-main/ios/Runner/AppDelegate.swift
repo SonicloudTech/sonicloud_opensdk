@@ -51,7 +51,6 @@ import UIKit
                 }
                 PNode.shared().authkeyConnect(authkey)
                 result(nil)
-            /* 新版 SDK 已移除 AuthKey 修改和解绑接口。
             case "resetAuthkey":
                 guard let args = call.arguments as? [String: Any],
                       let authkey = args["authkey"] as? String else {
@@ -63,7 +62,6 @@ import UIKit
             case "unbondAuthkey":
                 PNode.shared().unbondAuthkey()
                 result(nil)
-            */
             case "setWifiPassword":
                 guard let args = call.arguments as? [String: Any],
                       let password = args["password"] as? String,
@@ -227,8 +225,9 @@ import UIKit
              
                 result(nil)
             case "quickConnectDeviceWiFi":
-
-                PNode.shared().quickConnectDeviceWiFi(withWiFiTimeout: 30, tcpTimeout: 10)
+                let args = call.arguments as? [String: Any]
+                let password = args?["password"] as? String ?? ""
+                PNode.shared().quickConnectDeviceWiFi(withWiFiTimeout: 30, tcpTimeout: 10, password: password)
 
                 result(nil)
             case "disconnectDeviceWiFi":
@@ -239,7 +238,6 @@ import UIKit
             case "getWiFiHotspotState":
                 PNode.shared().getWiFiHotspotState()
                 result(nil)
-            /* 新版 SDK 已移除设备名称及 Wi-Fi 直传接口。
             case "setDeviceName":
                 guard let args = call.arguments as? [String: Any],
                       let name = args["name"] as? String else {
@@ -274,7 +272,6 @@ import UIKit
             case "getWifiDirect":
                 PNode.shared().getWiFiDirect()
                 result(nil)
-            */
             case "requestDeviceGotoOtaMode":
                 PNode.shared().requestDeviceGotoOtaMode()
                 result(nil)
@@ -349,7 +346,7 @@ extension AppDelegate: WindBleDelegate {
     }
     
     func deviceFileData(_ fileData: Data) {
-        print("备文件数据 opus格式\(fileData.count)")
+//         print("设备文件数据 opus格式\(fileData.count)")
         if let eventSink = eventSink {
             eventSink([
                 "audioType": "file",

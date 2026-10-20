@@ -1,7 +1,5 @@
 # Soni SDK Demo（Flutter）
 
-The app bar includes a language menu for `中文` and `English`. Protocol events and device payloads keep their original values for debugging.
-
 基于 Flutter 的录音笔 SDK 演示工程，用于验证蓝牙连接、录音控制、文件传输、Wi-Fi 连接和 OTA 升级等完整链路。  
 工程通过 `MethodChannel` / `EventChannel` 与 Android / iOS 原生 SDK 通信，适合作为 SDK 联调与功能验收 Demo。
 
@@ -10,7 +8,7 @@ The app bar includes a language menu for `中文` and `English`. Protocol events
 - 设备搜索与连接（蓝牙）
 - 录音控制（开始/暂停/停止）
 - 录音文件列表查询与文件下载
-- 实时音频数据接收（Opus）与本地解码（PCM/WAV）
+- 实时音频数据接收（Opus）；Android 直接封装 Ogg Opus，iOS 解码并保存 PCM/WAV
 - 设备 Wi-Fi 热点管理与连接状态回传
 - OTA 升级流程（进入升级模式、发送固件）
 - 固件版本、SN、电量、按键状态等设备信息读取
@@ -37,6 +35,7 @@ The app bar includes a language menu for `中文` and `English`. Protocol events
 │   ├── service_transfer_files.dart   # 文件传输辅助
 │   ├── service_system_ability.dart   # 系统能力与权限工具
 │   ├── wave_write.dart               # PCM 转 WAV
+│   ├── ogg_opus_writer.dart          # Android Opus 流式封装与批量写入 Ogg
 │   └── logger.dart                   # 日志输出
 ├── android
 │   └── app/src/main/kotlin/.../MainActivity.kt   # Android 原生通道实现

@@ -190,6 +190,7 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
       StreamController.broadcast();
 
   bool _isConnected = false;
+  String? _connectedDeviceKey;
 
   //是否正在录音
   bool _isRecording = false;
@@ -307,9 +308,9 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
     /// A 款：80ms/160字节，一包 4 帧，每帧 40 字节（20ms）
     /// B 款：解密后 400 字节，一包 5 帧，每帧 80 字节
     if (audioType == AudioDataType.file) {
-      Log.d(
-        '[蓝牙调试][文件传输] 接收包编号: $_transferPacketNumber, 数据包长度: ${data.length} 字节',
-      );
+      // Log.d(
+      //   '[蓝牙调试][文件传输] 接收包编号: $_transferPacketNumber, 数据包长度: ${data.length} 字节',
+      // );
       _transferPacketNumber++;
     }
     final updated = _audioRateStats
@@ -606,10 +607,17 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
   /// 处理连接状态变化 (cmd=2)
   Future<void> _handleDeviceConnectionEvent(Map<String, dynamic> map) async {
     //安卓是true,false,ios 是 1，0
-    if (map['data']['connect_state'] == "true" ||
-        map['data']['connect_state'] == "1") {
+    final connectState = map['data']['connect_state']?.toString();
+    if (connectState == "true" || connectState == "1") {
       String? deviceName = map['data']["name"]?.toString();
       if (deviceName != null && !deviceName.contains("null")) {
+        final address = map['data']['address']?.toString().trim();
+        final deviceKey = address != null && address.isNotEmpty && address != 'null'
+            ? 'address:${address.toLowerCase()}'
+            : 'name:$deviceName';
+        // 同一连接的重复成功通知不重复初始化，也不清空文件列表。
+        if (_isConnected && _connectedDeviceKey == deviceKey) return;
+        _connectedDeviceKey = deviceKey;
         _isConnected = true;
         // 保存设备信息
         print("保存设备信息$deviceMap");
@@ -632,6 +640,7 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
       }
     } else if (map['data']['address'] == "null") {
       _isConnected = false;
+      _connectedDeviceKey = null;
     } else {
       closeSuccess();
     }
@@ -883,6 +892,7 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
   closeSuccess() async {
     Log.d("☹️断开了");
     _isConnected = false;
+    _connectedDeviceKey = null;
     _isRecording = false;
     _cbc = "-1";
     _sn = "00000000";
@@ -1135,8 +1145,10 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   /// 一键连接设备 Wi-Fi
-  quickConnectDeviceWiFi() async {
-    await _methodChannel.invokeMethod('quickConnectDeviceWiFi');
+  Future<void> quickConnectDeviceWiFi({String password = ''}) async {
+    await _methodChannel.invokeMethod('quickConnectDeviceWiFi', {
+      'password': password,
+    });
   }
 
   ///获取设备 Wi-Fi 状态
