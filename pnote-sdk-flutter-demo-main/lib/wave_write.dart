@@ -4,13 +4,13 @@ import 'dart:typed_data';
 class WavWriter {
   static Future<void> writeWavFile({
     required String filePath,
-    required Uint8List pcmData,
+    required File pcmFile,
     int sampleRate = 16000,
     int channels = 1,
   }) async {
     final byteRate = sampleRate * channels * 2; // 16bit = 2字节
     final blockAlign = channels * 2;
-    final subchunk2Size = pcmData.length;
+    final subchunk2Size = await pcmFile.length();
     final chunkSize = 36 + subchunk2Size;
 
     final header = BytesBuilder();
@@ -36,7 +36,14 @@ class WavWriter {
 
     // ---- write to file ----
     final wavFile = File(filePath);
-    await wavFile.writeAsBytes(header.toBytes() + pcmData);
+    final sink = wavFile.openWrite();
+    try {
+      sink.add(header.toBytes());
+      await sink.addStream(pcmFile.openRead());
+      await sink.flush();
+    } finally {
+      await sink.close();
+    }
   }
 
   static List<int> ascii(String s) => s.codeUnits;

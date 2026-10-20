@@ -115,7 +115,6 @@ class MainActivity : FlutterFragmentActivity(), DeviceDataListener {
                     }
                 }
 
-                /* 新版 SDK 已移除 AuthKey 修改和解绑接口。
                 "resetAuthkey" -> {
                     val authkey = call.argument<String>("authkey")
                     if (authkey == null) {
@@ -131,7 +130,6 @@ class MainActivity : FlutterFragmentActivity(), DeviceDataListener {
                     result.success(null)
                 }
 
-                */
                 "setWifiPassword" -> {
                     val password = call.argument<String>("password")
                     if (password == null || password.length !in 8..16) {
@@ -336,7 +334,8 @@ class MainActivity : FlutterFragmentActivity(), DeviceDataListener {
                     result.success(null)
                 }
                 "quickConnectDeviceWiFi" -> {
-                    PNote.quickConnectDeviceWiFi(30, 10)
+                    val password = call.argument<String>("password") ?: ""
+                    PNote.quickConnectDeviceWiFi(password, 30, 10)
                     result.success(null)
                 }
                 ///断开设备WiFi连接
@@ -347,7 +346,6 @@ class MainActivity : FlutterFragmentActivity(), DeviceDataListener {
                     PNote.disconnectDeviceWiFi()
                     result.success(null)
                 }
-                /* 新版 SDK 已移除设备名称及 Wi-Fi 直传接口。
                 "setDeviceName" -> {
                     val name = call.argument<String>("name") ?: ""
                     PNote.SetDeviceName(name)
@@ -376,7 +374,6 @@ class MainActivity : FlutterFragmentActivity(), DeviceDataListener {
                     PNote.GetWifi()
                     result.success(null)
                 }
-                */
                 ///请求设备进入OTA升级模式
                 "requestDeviceGotoOtaMode" -> {
                     Log.d("开始调用", " PNote.requestDeviceGotoOtaMode()")
