@@ -1,6 +1,6 @@
 # SDK开发文档
 
-接口说明更新：2026-10-19。本次补充 Wi-Fi 直传说明。
+接口说明更新：2026-10-26。本次补充 L09 带参数启动录音接口、麦克风选项及调用示例。
 
 ## 一、集成SDK
 
@@ -151,6 +151,32 @@ NSString *authkey = @"00112233445566778899aabbccddeeff00112233445566778899aabbcc
 
 `device_name_state`：`0` 表示成功，`1` 表示失败。
 
+#### 重置设备
+
+```objective-c
+/// 恢复出厂设置，设备回复后删除全部音频、恢复默认蓝牙名称并重启
+-(void)restDevice;
+
+// 调用示例（方法名以 SDK 的 restDevice 为准）
+[[PNode Shared] restDevice];
+```
+
+Demo 的“重置”按钮通过 Flutter `resetDevice()` 调用原生 `resetDevice` 通道，Swift 中执行 `PNode.shared().restDevice()`。
+
+重置结果通过 `deviceDataEvent:(NSString *)data` 异步返回，`cmd=35`：
+
+```json
+{
+  "cmd": "35",
+  "state": "0",
+  "data": {
+    "reset_device_state": "0"
+  }
+}
+```
+
+`state`：`0` 表示正常，非 `0` 表示异常。`reset_device_state`：`0` 表示重置成功，`1` 表示重置失败，其他值在 Demo 中显示结果未知。通道返回仅表示已调用 SDK，设备执行结果以 `cmd=35` 回调为准。
+
 ### 2、录音
 
     /// 获取录音笔录音状态
@@ -215,6 +241,26 @@ NSString *authkey = @"00112233445566778899aabbccddeeff00112233445566778899aabbcc
     /// 启动录音
     -(void)startRecord;
     
+    /// L09 启动录音并选择麦克风
+    -(void)startRecord:(NSInteger)boneMic;
+
+    参数 boneMic：
+    0：关闭骨麦，开启数字麦。
+    1：开启骨麦，关闭数字麦。
+    其他值无效，不发送录音指令。
+
+    调用示例（Objective-C）：
+    [[PNode Shared] startRecord:0]; // 使用数字麦开始录音
+    [[PNode Shared] startRecord:1]; // 使用骨麦开始录音，与上一行二选一调用
+
+    调用示例（Swift）：
+    PNode.shared().startRecord(0) // 使用数字麦开始录音
+    PNode.shared().startRecord(1) // 使用骨麦开始录音，与上一行二选一调用
+
+    Demo 在“开始录音”按钮后提供“L09录音”按钮，点击弹出麦克风选项。
+    选择“数字麦（关闭骨麦）”传入 0，选择“骨麦（关闭数字麦）”传入 1，选中后开始录音；取消不发送指令。
+    原无参数 startRecord 接口保留；带参数接口的录音状态和实时音频回调沿用下方说明。
+
     /// 暂停录音
     -(void)pauseRecord;
     
@@ -632,27 +678,44 @@ NSString *authkey = @"00112233445566778899aabbccddeeff00112233445566778899aabbcc
       "state":"0",
       "data":
       {
+        "log":原始蓝牙数据
+      }
+    }
+    
+    说明：
+    名称    描述
+    cmd    标记：41
+    state    标记：0 表示正常，非0表示异常
+
+    "log":原始蓝牙数据
+
+    BK OTA升级说明：
+    APP需要提供设备可访问的HTTP或HTTPS固件下载地址，并在HTTP响应头中返回文件长度Content-Length；
+    调用setBK_UPGRADEHD时传入未对完整地址进行URIEncode的URL；如果文件名包含特殊字符，仅对URL路径中的文件名进行编码；
+    调用getBKHDVersion获取当前BK固件版本号；
+    对比版本后调用setBK_UPGRADEHD下发升级地址；
+    通过cmd 40依次处理升级URL设置结果、下载进度和文件校验结果；
+
+    部分 BK OTA相关结果在onDeviceDataEvent接口返回，格式：
+    {
+      "cmd":"41",
+      "state":"0",
+      "data":
+      {
         "type":"type",
         "value":"value"
       }
     }
     说明：
     名称    描述
-    cmd    标记：40
+    cmd    标记：41
     state    标记：0 表示正常，非0表示异常
 
     type    
     01    返回BK固件版本号 
     08    返回升级URL设置结果，0：成功；1：失败
     09    返回固件下载进度 0-100
-    10    返回固件文件校验结果，0：成功；1：失败
-    
-    BK OTA升级说明：
-    APP需要提供设备可访问的HTTP或HTTPS固件下载地址，并在HTTP响应头中返回文件长度Content-Length；
-    调用setBKUpgradeHD时传入未对完整地址进行URIEncode的URL；如果文件名包含特殊字符，仅对URL路径中的文件名进行编码；
-    调用getBKHDVersion获取当前BK固件版本号；
-    对比版本后调用setBKUpgradeHD下发升级地址；
-    通过cmd 40依次处理升级URL设置结果、下载进度和文件校验结果；
+    0A    返回固件文件校验结果，0：成功；1：失败
 
 ### 6、其它
 
