@@ -1,4 +1,4 @@
-<img width="924" height="450" alt="image" src="https://github.com/user-attachments/assets/6662312f-178d-4cc0-92e1-2909c84a5200" /># 声云录音卡 Recorder
+# 声云录音卡 Recorder
 
 **语言 / Language:** 简体中文 | [English](README.md)
 
@@ -187,4 +187,4 @@ PNote.connectDevice(name, address);
 提交问题时请附上操作系统与版本、目标平台、SDK/Demo 版本、设备固件版本、复现步骤，以及必要的日志或收发帧 hex。涉及真实设备数据时，请先脱敏序列号、地址、授权码和录音内容。
 
 ## 鸣谢
-AtomGit:在国内托管 AIRI，帮助中国大陆用户更快访问项目与下载Release。
+[AtomGit](https://atomgit.com/SonicloudTech/sonicloud_opensdk):荣获 AtomGit 官方 G-Star 优质项目认证
