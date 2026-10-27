@@ -1,4 +1,4 @@
-<img width="924" height="450" alt="image" src="https://github.com/user-attachments/assets/6662312f-178d-4cc0-92e1-2909c84a5200" /># 声云录音卡 Recorder
+# 声云录音卡 Recorder
 
 **语言 / Language:** 简体中文 | [English](README.md)
 
