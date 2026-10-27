@@ -68,6 +68,9 @@
 ///启动录音
 -(void)startRecord;
 
+///启动录音并选择麦克风：0 关闭骨麦、开启数字麦；1 开启骨麦、关闭数字麦；其他值无效
+-(void)startRecord:(NSInteger)boneMic;
+
 ///暂停录音
 -(void)pauseRecord;
 
@@ -195,6 +198,9 @@
 
 ///复位设备名称为出厂默认值
 -(void)resetDeviceName;
+
+///恢复出厂设置，设备回复后删除全部音频、恢复默认蓝牙名称并重启；结果JSON cmd=35
+-(void)restDevice;
 
 ///设置Wifi直传SSID和密码
 -(void)setWiFiDirectSSID:(NSString *)ssid password:(NSString *)password;
