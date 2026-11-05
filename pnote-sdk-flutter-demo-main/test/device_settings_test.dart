@@ -24,6 +24,80 @@ void main() {
     messenger.setMockMethodCallHandler(channel, null);
   });
 
+  test(
+    'device reset reaches native code and propagates native errors',
+    () async {
+      final provider = RecordPenProvider();
+      try {
+        await provider.resetDevice();
+        expect(calls.single.method, 'resetDevice');
+        expect(calls.single.arguments, isNull);
+
+        messenger.setMockMethodCallHandler(channel, (call) async {
+          throw PlatformException(
+            code: 'RESET_FAILED',
+            message: '设备重置调用失败',
+          );
+        });
+        await expectLater(
+          provider.resetDevice(),
+          throwsA(
+            isA<PlatformException>().having(
+              (error) => error.code,
+              'code',
+              'RESET_FAILED',
+            ),
+          ),
+        );
+      } finally {
+        binding.removeObserver(provider);
+        provider.dispose();
+        await provider.streamController.close();
+      }
+    },
+  );
+
+  test('cmd 35 reports device reset results in the page event stream', () async {
+    const events = MethodChannel('com.soni.soni_sdk_demo/eventChannel');
+    messenger.setMockMethodCallHandler(events, (call) async => null);
+    final provider = RecordPenProvider();
+    final received = <Map<String, dynamic>>[];
+    final subscription = provider.streamController.stream.listen(received.add);
+    try {
+      await provider.init();
+      await Future<void>.delayed(Duration.zero);
+      final cases = [
+        {'cmd': '35', 'value': '0', 'text': '成功'},
+        {'cmd': 35, 'value': 0, 'text': '成功'},
+        {'cmd': '35', 'value': '1', 'text': '失败'},
+        {'cmd': 35, 'value': 1, 'text': '失败'},
+        {'cmd': '35', 'value': '2', 'text': '结果未知(2)'},
+        {'cmd': 35, 'value': null, 'text': '结果未知(null)'},
+      ];
+      for (final item in cases) {
+        received.clear();
+        final event = {
+          'cmd': item['cmd'],
+          'state': '0',
+          'data': {'reset_device_state': item['value']},
+        };
+        await messenger.handlePlatformMessage(
+          events.name,
+          const StandardMethodCodec().encodeSuccessEnvelope(jsonEncode(event)),
+          (_) {},
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(received, [event, {'重置设备': item['text']}]);
+      }
+    } finally {
+      await subscription.cancel();
+      binding.removeObserver(provider);
+      provider.dispose();
+      await provider.streamController.close();
+      messenger.setMockMethodCallHandler(events, null);
+    }
+  });
+
   test('AuthKey changes pass the original hex string to the SDK', () async {
     final bytes = List.generate(32, (index) => index * 8);
     final hex = bytes

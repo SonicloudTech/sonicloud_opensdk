@@ -77,6 +77,14 @@ import UIKit
             case "startRecord"://开始录音
                 PNode.shared().startRecord()
                 result(nil)
+            case "startRecordWithBoneMic":
+                guard let args = call.arguments as? [String: Any],
+                      let enabled = args["enabled"] as? Bool else {
+                    result(FlutterError(code: "INVALID_BONE_MIC", message: "骨麦开关需为布尔值", details: nil))
+                    return
+                }
+                PNode.shared().startRecord(enabled ? 1 : 0)
+                result(nil)
             case "pauseRecord"://暂停录音
                 PNode.shared().pauseRecord()
                 result(nil)
@@ -245,6 +253,9 @@ import UIKit
                     return
                 }
                 PNode.shared().setDeviceName(name)
+                result(nil)
+            case "resetDevice":
+                PNode.shared().restDevice()
                 result(nil)
             case "resetDeviceName":
                 PNode.shared().resetDeviceName()

@@ -67,6 +67,17 @@ class MainActivity : FlutterFragmentActivity(), DeviceDataListener {
                     result.success(null)
                 }
 
+                "startRecordWithBoneMic" -> {
+                    val enabled = call.argument<Boolean>("enabled")
+                    if (enabled == null) {
+                        result.error("INVALID_BONE_MIC", "骨麦开关需为布尔值", null)
+                    } else {
+                        sessionIv = null
+                        PNote.startRecord(if (enabled) 1 else 0)
+                        result.success(null)
+                    }
+                }
+
                 "pauseRecord" -> {
                     PNote.pauseRecord()
                     result.success(null)
@@ -349,6 +360,10 @@ class MainActivity : FlutterFragmentActivity(), DeviceDataListener {
                 "setDeviceName" -> {
                     val name = call.argument<String>("name") ?: ""
                     PNote.SetDeviceName(name)
+                    result.success(null)
+                }
+                "resetDevice" -> {
+                    PNote.RestDevice()
                     result.success(null)
                 }
                 "resetDeviceName" -> {

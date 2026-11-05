@@ -202,7 +202,7 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   bool get isConnected => _isConnected;
 
-  // bool get isRecording => _isRecording;
+  bool get isRecording => _isRecording;
   String _cbc = "-1";
 
   String get cbc => _cbc;
@@ -214,6 +214,10 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
   Map<String, dynamic>? _deviceInfo;
 
   Map<String, dynamic>? get deviceInfo => _deviceInfo;
+
+  int? get deviceType => int.tryParse(
+    '${_deviceInfo?['productType'] ?? _deviceInfo?['type'] ?? ''}',
+  );
 
   String deviceName = "";
   String deviceAddress = "";
@@ -446,9 +450,11 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
           //返回状态，0表示已经进入升级状态，
           //     1 表示不能进入升级状态，主要原因是可能是SD卡或者内存不足；
           //     2 表示WiFi的TCP/IP未连接，升级模式需要在WiFi连接的状态下才能进行升级；
-          streamController.add({
-            "是否可以升级": map["data"]["prepareState"] == "0" ? "可以" : "不可以",
-          });
+          final otaData = map['data'];
+          final canUpgrade = map['state']?.toString() == '0' &&
+              otaData is Map &&
+              otaData['prepareState']?.toString() == '0';
+          streamController.add({"是否可以升级": canUpgrade ? "可以" : "不可以"});
           break;
         case "20":
         //state    标记：0 表示正常，非0表示异常
@@ -482,6 +488,7 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
         case "28":
         case "29":
         case "30":
+        case "35":
         case "40":
           _handleAdditionalCommandEvent(cmd, map);
           break;
@@ -539,6 +546,11 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
               "SSID=${data['ssid'] ?? ''}，连接${_commandResultText(data['status'])}",
         });
         break;
+      case "35":
+        streamController.add({
+          "重置设备": _commandResultText(data['reset_device_state']),
+        });
+        break;
       case "40":
         streamController.add({
           "BK OTA": "${data['type']?.toString() ?? ""} - ${data['value']?.toString() ?? ""}"
@@ -556,17 +568,28 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   /// 处理设备搜索 (cmd=1)
   void _handleDeviceSearchEvent(Map<String, dynamic> map) {
-    if (map['state'] != "0") return;
+    if (map['state']?.toString() != "0") return;
 
     final name = map['data']['name']?.toString() ?? '';
     final address = map['data']['address']?.toString() ?? '';
+    final productType = map['data']['productType'] ?? map['data']['type'];
     deviceName = name;
     deviceAddress = address;
 
     if (address.isNotEmpty && address != 'null') {
-      final exists = _discoveredDevices.any((d) => d['address'] == address);
-      if (!exists) {
-        _discoveredDevices.add({'name': name, 'address': address});
+      final index = _discoveredDevices.indexWhere((d) => d['address'] == address);
+      final device = {
+        if (index >= 0) ..._discoveredDevices[index],
+        'name': name,
+        'address': address,
+        if (productType != null) 'productType': productType.toString(),
+      };
+      if (index < 0) {
+        _discoveredDevices.add(device);
+        notifyListeners();
+      } else if (_discoveredDevices[index]['name'] != name ||
+          _discoveredDevices[index]['productType'] != device['productType']) {
+        _discoveredDevices[index] = device;
         notifyListeners();
       }
     }
@@ -615,17 +638,42 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
         final deviceKey = address != null && address.isNotEmpty && address != 'null'
             ? 'address:${address.toLowerCase()}'
             : 'name:$deviceName';
+        final scanned = _discoveredDevices.firstWhere(
+          (device) => address != null && address.isNotEmpty && address != 'null'
+              ? device['address']?.toLowerCase() == address.toLowerCase()
+              : device['name'] == deviceName,
+          orElse: () => const {},
+        );
+        final saved = deviceKey ==
+                'address:${deviceMap?['address']?.toString().toLowerCase()}' ||
+            (deviceKey == 'name:${deviceMap?['name']}');
+        final savedDevice = saved ? deviceMap : null;
+        final previous = _connectedDeviceKey == deviceKey ? _deviceInfo : null;
+        final data = Map<String, dynamic>.from(map['data'] as Map);
+        _deviceInfo = {
+          ...?previous,
+          ...?savedDevice,
+          ...scanned,
+          ...data,
+          'productType': data['productType'] ??
+              data['type'] ??
+              scanned['productType'] ??
+              savedDevice?['productType'] ??
+              savedDevice?['type'] ??
+              previous?['productType'],
+        };
         // 同一连接的重复成功通知不重复初始化，也不清空文件列表。
-        if (_isConnected && _connectedDeviceKey == deviceKey) return;
+        if (_isConnected && _connectedDeviceKey == deviceKey) {
+          notifyListeners();
+          return;
+        }
         _connectedDeviceKey = deviceKey;
         _isConnected = true;
-        // 保存设备信息
-        print("保存设备信息$deviceMap");
-        _deviceInfo = deviceMap;
 
         _isAutoConnecting = true;
         stopSearch();
         _clearRecordFileList();
+        notifyListeners();
 
         // 连接成功后
         await ServiceSystemAbility.sleep(2000);
@@ -641,6 +689,7 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
     } else if (map['data']['address'] == "null") {
       _isConnected = false;
       _connectedDeviceKey = null;
+      _deviceInfo = null;
     } else {
       closeSuccess();
     }
@@ -893,6 +942,7 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
     Log.d("☹️断开了");
     _isConnected = false;
     _connectedDeviceKey = null;
+    _deviceInfo = null;
     _isRecording = false;
     _cbc = "-1";
     _sn = "00000000";
@@ -919,6 +969,13 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
     }
     resetAudioRate(AudioDataType.record);
     await _recordService.startRecord();
+  }
+
+  /// L09 选择麦克风并启动录音
+  Future<void> startRecordWithBoneMic(bool enabled) async {
+    if (_isRecording) return;
+    resetAudioRate(AudioDataType.record);
+    await _recordService.startRecordWithBoneMic(enabled);
   }
 
   /// 暂停录音
@@ -1176,6 +1233,11 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
     await _methodChannel.invokeMethod('setDeviceName', {'name': name});
   }
 
+  /// 重置设备，执行结果通过 cmd=35 返回。
+  Future<void> resetDevice() async {
+    await _methodChannel.invokeMethod('resetDevice');
+  }
+
   /// 将设备名称复位为出厂默认值。
   Future<void> resetDeviceName() async {
     await _methodChannel.invokeMethod('resetDeviceName');
@@ -1205,9 +1267,49 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   /// 请求设备进入 OTA 升级模式
-  /// 结果通过 EventChannel (cmd=19) 返回，由 WiFiConnectionManager 处理
+  /// 结果通过 EventChannel (cmd=19) 返回
   Future<void> requestDeviceGotoOtaMode() async {
     await _methodChannel.invokeMethod('requestDeviceGotoOtaMode');
+  }
+
+  /// 收到设备进入升级模式的成功回复后，再发送固件。
+  Future<void> requestAndSendOtaFile(
+    String filePath, {
+    Duration timeout = const Duration(seconds: 10),
+  }) async {
+    final prepared = Completer<Map<String, dynamic>>();
+    // 先监听，避免遗漏请求调用期间立即到达的设备回复。
+    final subscription = streamController.stream.listen((event) {
+      if (event['cmd']?.toString() == '19' && !prepared.isCompleted) {
+        prepared.complete(event);
+      }
+    });
+    try {
+      final results = await Future.wait<dynamic>([
+        prepared.future,
+        requestDeviceGotoOtaMode(),
+      ], eagerError: true).timeout(
+        timeout,
+        onTimeout: () => throw TimeoutException('请求升级超时，未发送固件', timeout),
+      );
+      final response = results.first as Map<String, dynamic>;
+      if (response['state']?.toString() != '0') {
+        throw StateError('请求升级失败（state=${response['state']}）');
+      }
+      final data = response['data'];
+      final prepareState = data is Map ? data['prepareState']?.toString() : null;
+      if (prepareState != '0') {
+        final reason = switch (prepareState) {
+          '1' => '不能进入升级状态，请检查 SD 卡或内存空间',
+          '2' => 'WiFi 的 TCP/IP 未连接，请先连接设备 WiFi',
+          _ => '未知升级准备状态：$prepareState',
+        };
+        throw StateError(reason);
+      }
+      await sendOtaFile(filePath);
+    } finally {
+      await subscription.cancel();
+    }
   }
 
   /// 发送 OTA 固件文件
