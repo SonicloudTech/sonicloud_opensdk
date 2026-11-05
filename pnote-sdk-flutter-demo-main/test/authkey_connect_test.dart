@@ -1,5 +1,6 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:soni_sdk_demo/device_auth_config.dart';
 import 'package:soni_sdk_demo/service_bluetooth.dart';
 
 void main() {
@@ -31,6 +32,17 @@ void main() {
     expect(calls.single.method, 'authkeyConnect');
     expect(calls.single.arguments['authkey'], defaultAuthkey);
   });
+
+  for (final entry in {
+    201: '0xa23942310bdc269c3b64d71a6531f5b79f1d02c77851861205a7b6d727bd0928',
+    202: defaultAuthkey,
+  }.entries) {
+    test('type ${entry.key} authenticates with its configured key', () async {
+      await service.authkeyConnect(deviceAuthKeys[entry.key]!);
+      expect(calls.single.method, 'authkeyConnect');
+      expect(calls.single.arguments, {'authkey': entry.value});
+    });
+  }
 
   test('input is passed unchanged for SDK validation and conversion', () async {
     final values = [

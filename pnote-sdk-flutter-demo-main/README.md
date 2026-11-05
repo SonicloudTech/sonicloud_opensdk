@@ -74,15 +74,29 @@
 
 ## iOS 打包与版本号
 
-iOS 版本号由 `pubspec.yaml` 的 `version` 统一管理。例如，`version: 4.0.3+2` 对应 App 显示版本 `4.0.3` 与构建版本 `2`。
+iOS 版本号由 `pubspec.yaml` 的 `version` 统一管理。例如，`version: 4.0.3+4` 对应 App 显示版本 `4.0.3` 与构建版本 `4`，Demo 主页显示 `SoniSDKDemo V4.0.3（4）`。
 
-修改版本号后、使用 Xcode Archive 或 Flutter 打包前，执行以下命令重新生成 iOS 构建配置：
+修改版本号后、使用 Xcode Archive 或 Flutter 打包前，在项目根目录执行以下命令，刷新 Xcode 使用的版本号配置：
 
 ```bash
 flutter build ios --config-only --no-codesign
 ```
 
+该命令会更新 `ios/Flutter/Generated.xcconfig` 中的 `FLUTTER_BUILD_NAME` 和 `FLUTTER_BUILD_NUMBER`，分别对应 iOS 的 `CFBundleShortVersionString` 和 `CFBundleVersion`。
+
+如果重新构建后仍显示旧版本号，在项目根目录清理构建缓存并重新生成配置：
+
+```bash
+flutter clean
+flutter pub get
+flutter build ios --config-only --no-codesign
+```
+
+随后打开 `ios/Runner.xcworkspace`，在 Xcode 中执行 **Product → Clean Build Folder**（`Shift + Command + K`），再重新 Run 安装或 Archive 打包。热重载、热重启不会更新已安装 App 的版本号。
+
 不要手动修改 `ios/Flutter/Generated.xcconfig`，该文件由 Flutter 自动生成并会被覆盖。
+
+参考：[Flutter iOS 版本号说明](https://docs.flutter.dev/deployment/ios#update-the-apps-build-and-version-numbers)、[package_info_plus 版本号缓存说明](https://pub.dev/packages/package_info_plus/versions/9.0.1#i-have-changed-version-in-pubspecyaml-and-plugin-returns-wrong-info)。
 
 ## 联调说明
 

@@ -16,6 +16,12 @@ import 'package:soni_sdk_demo/service_network_permission.dart';
 import 'package:soni_sdk_demo/wave_write.dart';
 
 import 'bluetooth_constants.dart';
+import 'demo_function_panel.dart';
+import 'demo_home_tabs.dart';
+import 'demo_log_header.dart';
+import 'demo_theme.dart';
+import 'device_auth_config.dart';
+import 'log_clipboard.dart';
 import 'logger.dart';
 import 'ogg_opus_writer.dart';
 import 'provider_record_pen.dart';
@@ -42,13 +48,11 @@ class MyApp extends StatelessWidget {
       providers: [ChangeNotifierProvider(create: (_) => RecordPenProvider())],
 
       child: MaterialApp(
-        title: 'SoniSDkDemo',
+        title: 'SoniSDKDemo',
         debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          colorScheme: const ColorScheme.light(primary: Color(0xff3a7afe)),
-        ),
+        theme: createDemoTheme(),
         home: const MyHomePage(
-          title: deviceAes256Gcm ? 'SoniSDkDemo-BK解密' : 'SoniSDkDemo',
+          title: deviceAes256Gcm ? 'SoniSDKDemo-BK解密' : 'SoniSDKDemo',
         ),
       ),
     );
@@ -81,6 +85,8 @@ class _MyHomePageState extends State<MyHomePage> {
   late RecordPenProvider _recordPenProvider;
   final ScrollController _scrollController = ScrollController();
   final List _data = [];
+  bool _audioRateExpanded = false;
+  bool _autoScrollLog = false;
 
   late SimpleOpusDecoder _recordDecoder;
   late SimpleOpusDecoder _transferDecoder;
@@ -126,12 +132,12 @@ class _MyHomePageState extends State<MyHomePage> {
   final TextEditingController _sendFileTimeIntervalController =
       TextEditingController(text: '13');
   String? _selectedDeviceAddress;
-  final TextEditingController _authkeyController = TextEditingController(
-    text: '0xae4b1e65f7ba1282d2060876d324253c95e9475307b4e9e14f9a708dcc54b250',
-  );
+  final TextEditingController _authkeyController = TextEditingController();
+  int? _authkeyDeviceType;
   final TextEditingController _otaFirmwareNameController =
       TextEditingController();
   File? _otaFirmwareFile;
+  bool _otaRequestInProgress = false;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final TextEditingController _bkFirmwarePathController =
       TextEditingController();
@@ -148,6 +154,8 @@ class _MyHomePageState extends State<MyHomePage> {
     }
 
     _recordPenProvider = Provider.of<RecordPenProvider>(context, listen: false);
+    _recordPenProvider.addListener(_syncAuthkeyForDevice);
+    _syncAuthkeyForDevice();
     _recordPenProvider.init();
 
     _recordPenProvider.streamController.stream.listen((event) async {
@@ -220,7 +228,11 @@ class _MyHomePageState extends State<MyHomePage> {
     try {
       final info = await PackageInfo.fromPlatform();
       if (!mounted) return;
-      setState(() => _appVersion = info.version);
+      setState(() {
+        _appVersion = info.buildNumber.isEmpty
+            ? info.version
+            : '${info.version}（${info.buildNumber}）';
+      });
     } catch (_) {}
   }
 
@@ -256,10 +268,13 @@ class _MyHomePageState extends State<MyHomePage> {
     setState(() {
       _data.add('${_formatLogTime(DateTime.now())} $message');
     });
-    Future.delayed(const Duration(milliseconds: 100), () {
-      if (_scrollController.hasClients) {
-        _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
-      }
+    if (_autoScrollLog) _scrollLogToBottom();
+  }
+
+  void _scrollLogToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_autoScrollLog || !_scrollController.hasClients) return;
+      _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
     });
   }
 
@@ -374,12 +389,104 @@ class _MyHomePageState extends State<MyHomePage> {
       ).showSnackBar(const SnackBar(content: Text('暂无日志')));
       return;
     }
-    final text = _data.map((e) => e.toString()).join('\n');
-    await Clipboard.setData(ClipboardData(text: text));
+    final lineCount = _data.length;
+    final parts = LogClipboard.split(_data.map((e) => e.toString()).join('\n'));
+    if (parts.length > 1) {
+      await _showLogCopyParts(parts, lineCount);
+      return;
+    }
+    final message = await _copyLogText(parts.single, '已完整复制 $lineCount 行日志');
     if (!mounted) return;
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(SnackBar(content: Text('已复制 ${_data.length} 行日志')));
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<String> _copyLogText(String text, String successMessage) async {
+    try {
+      if (await LogClipboard.copy(text)) return successMessage;
+      return '复制不完整：系统剪贴板未能保存全部内容，请缩短日志后重试';
+    } catch (_) {
+      return '复制失败：无法读写系统剪贴板，请缩短日志或重试';
+    }
+  }
+
+  Future<void> _showLogCopyParts(List<String> parts, int lineCount) async {
+    var index = 0;
+    var copying = false;
+    var message = '';
+    final copiedParts = <int>{};
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('日志过长，请分段复制'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '本次共 $lineCount 行日志，超过单次安全复制长度（256 KB），'
+                '已保留完整内容并分为 ${parts.length} 段。每次复制后请先粘贴，再复制下一段。',
+              ),
+              const SizedBox(height: 12),
+              Text('第 ${index + 1} / ${parts.length} 段，已复制 ${copiedParts.length} 段'),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  TextButton(
+                    onPressed: copying || index == 0
+                        ? null
+                        : () {
+                            setDialogState(() {
+                              index--;
+                              message = '';
+                            });
+                          },
+                    child: const Text('上一段'),
+                  ),
+                  TextButton(
+                    onPressed: copying || index == parts.length - 1
+                        ? null
+                        : () {
+                            setDialogState(() {
+                              index++;
+                              message = '';
+                            });
+                          },
+                    child: const Text('下一段'),
+                  ),
+                ],
+              ),
+              if (message.isNotEmpty) Text(message),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: copying ? null : () => Navigator.of(dialogContext).pop(),
+              child: const Text('关闭'),
+            ),
+            FilledButton(
+              onPressed: copying
+                  ? null
+                  : () async {
+                      setDialogState(() => copying = true);
+                      final successMessage = '已完整复制第 ${index + 1} 段';
+                      final result = await _copyLogText(parts[index], successMessage);
+                      if (!dialogContext.mounted) return;
+                      setDialogState(() {
+                        copying = false;
+                        message = result;
+                        if (result == successMessage) copiedParts.add(index);
+                      });
+                    },
+              child: Text(copying ? '复制中…' : '复制当前段'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   bool _isRecordAudio(String audioType) => audioType == AudioDataType.record;
@@ -652,6 +759,7 @@ class _MyHomePageState extends State<MyHomePage> {
 
   @override
   void dispose() {
+    _recordPenProvider.removeListener(_syncAuthkeyForDevice);
     _audioPlayer.dispose();
     _scrollController.dispose();
     _sendFileTimeIntervalController.dispose();
@@ -689,10 +797,16 @@ class _MyHomePageState extends State<MyHomePage> {
       ).showSnackBar(const SnackBar(content: Text('请先搜索并选择要连接的设备')));
       return;
     }
-    provider.connect({
-      'name': device['name'] ?? '',
-      'address': device['address'] ?? '',
-    });
+    provider.connect(device);
+  }
+
+  void _syncAuthkeyForDevice() {
+    final type = _recordPenProvider.isConnected
+        ? _recordPenProvider.deviceType
+        : null;
+    if (_authkeyDeviceType == type) return;
+    _authkeyDeviceType = type;
+    _authkeyController.text = deviceAuthKeys[type] ?? '';
   }
 
   Future<void> _authkeyConnect(RecordPenProvider provider) async {
@@ -720,10 +834,19 @@ class _MyHomePageState extends State<MyHomePage> {
     }
   }
 
-  void _showAuthkeyUnsupported() {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('暂不支持')));
+  Future<void> _showSetAuthkeyDialog() async {
+    final controller = TextEditingController();
+    final authkey = await _showInputDialog(
+      title: '修改AuthKey',
+      controller: controller,
+      hint: '请输入新的 64 位十六进制 AuthKey',
+      trimInput: false,
+    );
+    if (authkey == null || !mounted) return;
+    await _runDeviceSetting(
+      '修改AuthKey',
+      () => _recordPenProvider.resetAuthkey(authkey),
+    );
   }
 
   Future<void> _showSetWifiPasswordDialog() async {
@@ -741,7 +864,7 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   Future<void> _showWifiPasswordConnectDialog({bool quickConnect = false}) async {
-    final controller = TextEditingController();
+    final controller = TextEditingController(text: quickConnect ? '' : '12345678');
     final title = quickConnect ? '一键连接WiFi' : '密码连接';
     final password = await _showInputDialog(
       title: title,
@@ -816,18 +939,21 @@ class _MyHomePageState extends State<MyHomePage> {
     }
   }
 
-  Future<void> _sendSelectedOtaFirmware() async {
+  Future<void> _requestAndSendSelectedOtaFirmware() async {
     final file = _otaFirmwareFile;
-    if (file == null) return;
-    _appendLog('[OTA] 开始发送固件: ${_otaFirmwareNameController.text}');
+    if (file == null || _otaRequestInProgress) return;
+    setState(() => _otaRequestInProgress = true);
+    _appendLog('[蓝牙调试][OTA升级] 请求升级并发送固件: ${_otaFirmwareNameController.text}');
     try {
-      await _recordPenProvider.sendOtaFile(file.path);
+      await _recordPenProvider.requestAndSendOtaFile(file.path);
     } catch (e) {
-      Log.e('发送固件失败: $e');
+      Log.e('[蓝牙调试][OTA升级] 请求并发送失败: $e');
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('发送固件失败: $e')));
+      ).showSnackBar(SnackBar(content: Text('请求并发送失败: $e')));
+    } finally {
+      if (mounted) setState(() => _otaRequestInProgress = false);
     }
   }
 
@@ -843,565 +969,180 @@ class _MyHomePageState extends State<MyHomePage> {
       });
     }
 
-    return Scaffold(
-      key: _scaffoldKey,
+    return DemoHomeTabs(
+      scaffoldKey: _scaffoldKey,
       appBar: AppBar(
         toolbarHeight: 40,
         titleSpacing: 8,
+        actions: const [SizedBox.shrink()],
         title: Text(
-          _appVersion.isEmpty ? widget.title : '${widget.title}  v$_appVersion',
+          _appVersion.isEmpty ? widget.title : '${widget.title} V$_appVersion',
           style: const TextStyle(fontSize: 13),
         ),
-        actions: [
-          TextButton(
-            style: TextButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              minimumSize: Size.zero,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              textStyle: const TextStyle(fontSize: 12),
-            ),
-            onPressed: () {
-              setState(() {
-                _data.clear();
-              });
-            },
-            child: const Text("清屏"),
-          ),
-          TextButton(
-            style: TextButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              minimumSize: Size.zero,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              textStyle: const TextStyle(fontSize: 12),
-            ),
-            onPressed: _copyLogToClipboard,
-            child: const Text("复制log"),
-          ),
-        ],
       ),
       endDrawer: Drawer(
         width: MediaQuery.sizeOf(context).width * 0.88,
         child: _buildBkOtaDrawer(),
       ),
-      resizeToAvoidBottomInset: true,
-      body: Padding(
+      device: Padding(
         padding: const EdgeInsets.all(8.0),
         child: Column(
           children: <Widget>[
-            _buildLogPanel(),
-            const SizedBox(height: 10),
-            _buildAudioRatePanel(recordPenProvider),
+            Expanded(flex: 2, child: _buildLogPanel()),
+            const SizedBox(height: 6),
+            SizedBox(
+              width: double.infinity,
+              height: 28,
+              child: TextButton.icon(
+                style: TextButton.styleFrom(
+                  padding: EdgeInsets.zero,
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  backgroundColor: const Color(0xFFF5F7FB),
+                  textStyle: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                onPressed: () => setState(() {
+                  _audioRateExpanded = !_audioRateExpanded;
+                }),
+                icon: Icon(
+                  _audioRateExpanded ? Icons.expand_less : Icons.expand_more,
+                  size: 16,
+                ),
+                label: Text(_audioRateExpanded ? '收起音频传输速率' : '展开音频传输速率'),
+              ),
+            ),
+            if (_audioRateExpanded) ...[
+              const SizedBox(height: 6),
+              _buildAudioRatePanel(recordPenProvider),
+            ],
             const SizedBox(height: 10),
             Expanded(
+              flex: 3,
               child: SingleChildScrollView(
+                padding: const EdgeInsets.only(bottom: 50),
                 keyboardDismissBehavior:
                     ScrollViewKeyboardDismissBehavior.onDrag,
-                child: Column(
-                  spacing: 10,
-                  children: <Widget>[
-                    DropdownButtonFormField<String>(
-                      isExpanded: true,
-                      isDense: true,
-                      menuMaxHeight: 280,
-                      value:
-                          recordPenProvider.recordFileNames.contains(
-                                recordPenProvider.transFileName,
-                              ) &&
-                              recordPenProvider.transFileName.isNotEmpty
-                          ? recordPenProvider.transFileName
-                          : null,
-                      style: const TextStyle(fontSize: 11, color: Colors.black),
-                      decoration: _compactInput(
-                        '选择传输文件 (${recordPenProvider.recordFiles.length})',
-                      ),
-                      hint: const Text(
-                        '先获取文件列表',
-                        style: TextStyle(fontSize: 10, color: Colors.grey),
-                      ),
-                      selectedItemBuilder: (context) => recordPenProvider
-                          .recordFiles
-                          .map(
-                            (file) => Align(
-                              alignment: Alignment.centerLeft,
-                              child: SingleChildScrollView(
-                                scrollDirection: Axis.horizontal,
-                                child: Text(
-                                  file.displayLabel,
-                                  maxLines: 1,
-                                  softWrap: false,
-                                  style: const TextStyle(fontSize: 11),
-                                ),
-                              ),
-                            ),
-                          )
-                          .toList(),
-                      items: recordPenProvider.recordFiles
-                          .map(
-                            (file) => DropdownMenuItem<String>(
-                              value: file.name,
-                              child: SingleChildScrollView(
-                                scrollDirection: Axis.horizontal,
-                                child: Text(
-                                  file.displayLabel,
-                                  maxLines: 1,
-                                  softWrap: false,
-                                  style: const TextStyle(fontSize: 11),
-                                ),
-                              ),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: recordPenProvider.recordFiles.isEmpty
-                          ? null
-                          : (value) {
-                              if (value != null) {
-                                recordPenProvider.setTransFileName(value);
-                              }
-                            },
+                child: DemoFunctionPanel(
+                  fileSelector: DropdownButtonFormField<String>(
+                    isExpanded: true,
+                    isDense: true,
+                    menuMaxHeight: 280,
+                    value:
+                        recordPenProvider.recordFileNames.contains(
+                              recordPenProvider.transFileName,
+                            ) &&
+                            recordPenProvider.transFileName.isNotEmpty
+                        ? recordPenProvider.transFileName
+                        : null,
+                    style: const TextStyle(fontSize: 11, color: Colors.black),
+                    decoration: _compactInput(
+                      '选择传输文件 (${recordPenProvider.recordFiles.length})',
                     ),
-                    Column(
-                      spacing: 5,
-                      children: [
-                        Row(
-                          spacing: 8,
-                          children: [
-                            Expanded(
-                              child: DropdownButtonFormField<String>(
-                                isExpanded: true,
-                                isDense: true,
-                                value: _selectedDeviceAddress,
-                                style: const TextStyle(
-                                  fontSize: 11,
-                                  color: Colors.black,
-                                ),
-                                decoration: _compactInput(
-                                  '选择设备 (${discoveredDevices.length})',
-                                ),
-                                hint: const Text(
-                                  '搜索后选择设备',
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    color: Colors.grey,
+                    hint: const Text(
+                      '先获取文件列表',
+                      style: TextStyle(fontSize: 10, color: Colors.grey),
+                    ),
+                    selectedItemBuilder: (context) => recordPenProvider
+                        .recordFiles
+                        .map(
+                          (file) => Align(
+                            alignment: Alignment.centerLeft,
+                            child: SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: Text(
+                                file.displayLabel,
+                                maxLines: 1,
+                                softWrap: false,
+                                style: const TextStyle(fontSize: 11),
+                              ),
+                            ),
+                          ),
+                        )
+                        .toList(),
+                    items: recordPenProvider.recordFiles
+                        .map(
+                          (file) => DropdownMenuItem<String>(
+                            value: file.name,
+                            child: SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: Text(
+                                file.displayLabel,
+                                maxLines: 1,
+                                softWrap: false,
+                                style: const TextStyle(fontSize: 11),
+                              ),
+                            ),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: recordPenProvider.recordFiles.isEmpty
+                        ? null
+                        : (value) {
+                            if (value != null) {
+                              recordPenProvider.setTransFileName(value);
+                            }
+                          },
+                  ),
+                  deviceSelector: Row(
+                    spacing: 8,
+                    children: [
+                      Expanded(
+                        child: DropdownButtonFormField<String>(
+                          isExpanded: true,
+                          isDense: true,
+                          value: _selectedDeviceAddress,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: Colors.black,
+                          ),
+                          decoration: _compactInput(
+                            '选择设备 (${discoveredDevices.length})',
+                          ),
+                          hint: const Text(
+                            '搜索后选择设备',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: Colors.grey,
+                            ),
+                          ),
+                          items: discoveredDevices
+                              .map(
+                                (device) => DropdownMenuItem<String>(
+                                  value: device['address'],
+                                  child: Text(
+                                    device['address'] ?? '',
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(fontSize: 11),
                                   ),
                                 ),
-                                items: discoveredDevices
-                                    .map(
-                                      (device) => DropdownMenuItem<String>(
-                                        value: device['address'],
-                                        child: Text(
-                                          device['address'] ?? '',
-                                          overflow: TextOverflow.ellipsis,
-                                          style: const TextStyle(fontSize: 11),
-                                        ),
-                                      ),
-                                    )
-                                    .toList(),
-                                onChanged: discoveredDevices.isEmpty
-                                    ? null
-                                    : (value) {
-                                        setState(
-                                          () => _selectedDeviceAddress = value,
-                                        );
-                                      },
-                              ),
-                            ),
-                            SizedBox(
-                              height: 40,
-                              child: FilledButton(
-                                onPressed: _selectedDeviceAddress == null
-                                    ? null
-                                    : () => _connectSelectedDevice(
-                                        recordPenProvider,
-                                      ),
-                                child: const Text('连接'),
-                              ),
-                            ),
-                          ],
+                              )
+                              .toList(),
+                          onChanged: discoveredDevices.isEmpty
+                              ? null
+                              : (value) {
+                                  setState(
+                                    () => _selectedDeviceAddress = value,
+                                  );
+                                },
                         ),
-                        Row(
-                          spacing: 8,
-                          children: [
-                            Expanded(
-                              child: TextField(
-                                controller: _authkeyController,
-                                style: const TextStyle(fontSize: 11),
-                                decoration: _compactInput('AuthKey'),
-                              ),
-                            ),
-                            SizedBox(
-                              height: 40,
-                              child: FilledButton(
-                                onPressed: () => _authkeyConnect(
+                      ),
+                      SizedBox(
+                        height: 40,
+                        child: FilledButton(
+                          onPressed: _selectedDeviceAddress == null
+                              ? null
+                              : () => _connectSelectedDevice(
                                   recordPenProvider,
                                 ),
-                                child: const Text('认证'),
-                              ),
-                            ),
-                          ],
+                          child: const Text('连接'),
                         ),
-                        GridView.count(
-                          padding: EdgeInsets.zero,
-                          physics: const NeverScrollableScrollPhysics(),
-                          shrinkWrap: true,
-                          crossAxisCount: 5,
-                          childAspectRatio: 2.5,
-                          mainAxisSpacing: 5,
-                          crossAxisSpacing: 5,
-                          children: [
-                            _buttonItem('修改AuthKey', _showAuthkeyUnsupported),
-                            _buttonItem('重置AuthKey', _showAuthkeyUnsupported),
-                            _buttonItem("设置设备名", _showSetDeviceNameDialog),
-                          ],
-                        ),
-                        GridView.count(
-                          padding: EdgeInsets.zero,
-                          physics: const NeverScrollableScrollPhysics(),
-                          shrinkWrap: true,
-                          crossAxisCount: 5,
-                          childAspectRatio: 2.5,
-                          mainAxisSpacing: 5,
-                          crossAxisSpacing: 5,
-                          children: [
-                            _buttonItem("搜索设备", () {
-                              setState(() => _selectedDeviceAddress = null);
-                              recordPenProvider.startSearch();
-                            }),
-                            _buttonItem("停止搜索", () {
-                              recordPenProvider.stopSearch();
-                            }),
-                            _buttonItem("是否链接", () {
-                              recordPenProvider.isDeviceConnected();
-                            }),
-                            _buttonItem("断开链接", () {
-                              recordPenProvider.closeConnect();
-                            }),
-                          ],
-                        ),
-                        GridView.count(
-                          padding: EdgeInsets.zero,
-                          physics: const NeverScrollableScrollPhysics(),
-                          shrinkWrap: true,
-                          crossAxisCount: 5,
-                          childAspectRatio: 2.5,
-                          mainAxisSpacing: 5,
-                          crossAxisSpacing: 5,
-                          children: [
-                            _buttonItem("录音状态", () {
-                              _recordPenProvider.getRecordState();
-                            }),
-                            _buttonItem("开始录音", () async {
-                              if (_useOggStorage) {
-                                await _recordAudioQueue.run(_resetRecordAudio);
-                              } else {
-                                await _resetRecordAudio();
-                              }
-                              _recordPenProvider.startRecord();
-                            }),
-                            _buttonItem("暂停录音", () {
-                              _recordPenProvider.pauseRecord();
-                            }),
-                            _buttonItem("继续录音", () {
-                              _recordPenProvider.continueRecord();
-                            }),
-                            _buttonItem("停止录音", () async {
-                              _recordPenProvider.stopRecord();
-                              _scheduleFinishRecordAudio();
-                            }),
-                            _buttonItem("▶ 播放录音", () {
-                              _playAudio(_recordAudioName, '录音');
-                            }, enabled: _recordAudioExists),
-                            _buttonItem("后连：获取录音文件名", () {
-                              _recordPenProvider.getFileName();
-                            }),
-                            _buttonItem("后连：获取时长和流", () {
-                              _recordPenProvider.getTimeOnlyRecording();
-                            }),
-                          ],
-                        ),
-                        GridView.count(
-                          padding: EdgeInsets.zero,
-                          physics: const NeverScrollableScrollPhysics(),
-                          shrinkWrap: true,
-                          crossAxisCount: 5,
-                          childAspectRatio: 2.5,
-                          mainAxisSpacing: 5,
-                          crossAxisSpacing: 5,
-                          children: [
-                            _buttonItem("获取电量", () {
-                              _recordPenProvider.getCBC();
-                            }),
-                            _buttonItem("获取容量", () {
-                              _recordPenProvider.getDeviceCapacity();
-                            }),
-                            _buttonItem("获取SN", () {
-                              _recordPenProvider.getSN();
-                            }),
-                            _buttonItem("给设备下发时间", () {
-                              _recordPenProvider.asyncNowTime();
-                            }),
-                            _buttonItem("获取当前增益", () {
-                              _recordPenProvider.getDeviceGain();
-                            }),
-                            _buttonItem("设置当前增益", () {
-                              _recordPenProvider.setDeviceGain(3);
-                            }),
-                            _buttonItem("通知APP前后台", () {
-                              _recordPenProvider.sendAppShowState(2);
-                            }),
-                            _buttonItem("获取固件版本号", () {
-                              _recordPenProvider.getDeviceVersion();
-                            }),
-                          ],
-                        ),
-                        GridView.count(
-                          padding: EdgeInsets.zero,
-                          physics: const NeverScrollableScrollPhysics(),
-                          shrinkWrap: true,
-                          crossAxisCount: 5,
-                          childAspectRatio: 2.5,
-                          mainAxisSpacing: 5,
-                          crossAxisSpacing: 5,
-                          children: [
-                            _buttonItem("文件列表", () {
-                              _recordPenProvider.getRecordFileList();
-                            }),
-                            _buttonItem("删除文件", () {
-                              final name = _requireSelectedTransferFile();
-                              if (name == null) return;
-                              _recordPenProvider.deleteFile(name);
-                            }),
-                            _buttonItem("⚠️删除所有文件", () {
-                              _recordPenProvider.deleteAllFile();
-                            }),
-                            _buttonItem("传输文件", () async {
-                              final name = _requireSelectedTransferFile();
-                              if (name == null) return;
-                              if (_transferStarting) return;
-                              _transferStarting = true;
-                              try {
-                                await _transferAudioQueue.run(() async {
-                                  await _resetTransferAudio();
-                                  await _recordPenProvider
-                                      .sendFileFromPenToPhoneWithOffset(name, 0);
-                                });
-                              } catch (e) {
-                                Log.e('[蓝牙调试][文件传输] 启动传输失败: $e');
-                              } finally {
-                                _transferStarting = false;
-                              }
-                            }),
-                            _buttonItem("停止传输", () {
-                              final name = _requireSelectedTransferFile();
-                              if (name == null) return;
-                              _recordPenProvider.stopTransferFile(name);
-                            }),
-                          ],
-                        ),
-                        GridView.count(
-                          padding: EdgeInsets.zero,
-                          physics: const NeverScrollableScrollPhysics(),
-                          shrinkWrap: true,
-                          crossAxisCount: 5,
-                          childAspectRatio: 2.5,
-                          mainAxisSpacing: 5,
-                          crossAxisSpacing: 5,
-                          children: [
-                            _buttonItem("▶ 播放传输", () {
-                              _playAudio(_transferAudioName, '传输音频');
-                            }, enabled: _transferAudioExists),
-                            _buttonItem("⏹ 停止播放", () {
-                              _audioPlayer.stop();
-                            }),
-                          ],
-                        ),
-                        GridView.count(
-                          padding: EdgeInsets.zero,
-                          physics: const NeverScrollableScrollPhysics(),
-                          shrinkWrap: true,
-                          crossAxisCount: 5,
-                          childAspectRatio: 2.5,
-                          mainAxisSpacing: 5,
-                          crossAxisSpacing: 5,
-                          children: [
-                            _buttonItem("返回开始", () {
-                              _recordPenProvider.startBtnBackRecord();
-                            }),
-                            _buttonItem("返回暂停", () {}),
-                            _buttonItem("返回继续", () {}),
-                            _buttonItem("返回停止", () {}),
-                          ],
-                        ),
-                        Text(
-                          "第二代wifi版本",
-                          style: TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        GridView.count(
-                          padding: EdgeInsets.zero,
-                          physics: const NeverScrollableScrollPhysics(),
-                          shrinkWrap: true,
-                          crossAxisCount: 5,
-                          childAspectRatio: 2.5,
-                          mainAxisSpacing: 5,
-                          crossAxisSpacing: 5,
-                          children: [
-                            _buttonItem("打开wifi", () {
-                              _recordPenProvider.openWiFi();
-                            }),
-                            _buttonItem(
-                              "连接(${_recordPenProvider.wifiName})",
-                              () {
-                                _recordPenProvider.connectDeviceWiFi();
-                              },
-                            ),
-                            _buttonItem('密码连接', _showWifiPasswordConnectDialog),
-                            _buttonItem("关闭wifi", () {
-                              _recordPenProvider.closeWiFi();
-                            }),
-                            _buttonItem("wifi断开设备", () {
-                              _recordPenProvider.disconnectDeviceWiFi();
-                            }),
-                            _buttonItem("连接状态", () {
-                              _recordPenProvider.getDeviceWiFiState();
-                            }),
-                            _buttonItem("手机状态", () {
-                              _recordPenProvider.getWiFiHotspotState();
-                            }),
-                            _buttonItem("一键连接WiFi", () {
-                              _showWifiPasswordConnectDialog(quickConnect: true);
-                            }),
-                            _buttonItem('修改热点密码', _showSetWifiPasswordDialog),
-                          ],
-                        ),
-                        Text(
-                          "直连Wi-Fi版本",
-                          style: TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        GridView.count(
-                          padding: EdgeInsets.zero,
-                          physics: const NeverScrollableScrollPhysics(),
-                          shrinkWrap: true,
-                          crossAxisCount: 5,
-                          childAspectRatio: 2.5,
-                          mainAxisSpacing: 5,
-                          crossAxisSpacing: 5,
-                          children: [
-                            _buttonItem("复位设备名", () {
-                              _recordPenProvider.resetDeviceName();
-                            }),
-                            _buttonItem("设置直传Wi-Fi", _showSetWifiDirectDialog),
-                            _buttonItem("设置上传URL", _showSetRemoteUrlDialog),
-                            _buttonItem("复位直传Wi-Fi", () {
-                              _recordPenProvider.resetWifiDirect();
-                            }),
-                            _buttonItem("获取直传Wi-Fi", () {
-                              _recordPenProvider.getWifiDirect();
-                            }),
-                          ],
-                        ),
-                        const SizedBox(height: 32),
-                        GridView.count(
-                          padding: EdgeInsets.zero,
-                          physics: const NeverScrollableScrollPhysics(),
-                          shrinkWrap: true,
-                          crossAxisCount: 5,
-                          childAspectRatio: 2.5,
-                          mainAxisSpacing: 5,
-                          crossAxisSpacing: 5,
-                          children: [
-                            _buttonItem("固件版本号", () {
-                              _recordPenProvider.getDeviceVersion();
-                            }),
-                            _buttonItem("固件升级code", () {
-                              _recordPenProvider.getDeviceVersionCode();
-                            }),
-                            _buttonItem("请求升级", () {
-                              _recordPenProvider.requestDeviceGotoOtaMode();
-                            }),
-                            _buttonItem("低功耗状态", () {
-                              _recordPenProvider.getDeviceLowPowerRecordMode();
-                            }),
-                            _buttonItem("设置低功耗", () {
-                              _recordPenProvider.setDeviceLowPowerRecordMode(
-                                true,
-                              );
-                            }),
-                          ],
-                        ),
-                        Row(
-                          spacing: 8,
-                          children: [
-                            Expanded(
-                              child: TextField(
-                                controller: _otaFirmwareNameController,
-                                readOnly: true,
-                                style: const TextStyle(fontSize: 11),
-                                decoration: _compactInput('固件文件（.ufw）'),
-                              ),
-                            ),
-                            SizedBox(
-                              height: 32,
-                              width: 88,
-                              child: _buttonItem('选择固件', _pickOtaFirmware),
-                            ),
-                            SizedBox(
-                              height: 32,
-                              width: 88,
-                              child: _buttonItem(
-                                '发送固件',
-                                _sendSelectedOtaFirmware,
-                                enabled: _otaFirmwareFile != null,
-                              ),
-                            ),
-                          ],
-                        ),
-
-                        // Row(
-                        //   spacing: 8,
-                        //   children: [
-                        //     Expanded(
-                        //       child: TextField(
-                        //         controller: _sendFileTimeIntervalController,
-                        //         keyboardType: TextInputType.number,
-                        //         style: const TextStyle(fontSize: 11),
-                        //         decoration: _compactInput("文件传输间隔（毫秒）"),
-                        //       ),
-                        //     ),
-                        //     SizedBox(
-                        //       height: 32,
-                        //       child: FilledButton(
-                        //         onPressed: () {
-                        //           final interval = int.tryParse(
-                        //             _sendFileTimeIntervalController.text.trim(),
-                        //           );
-                        //           if (interval == null) {
-                        //             ScaffoldMessenger.of(context).showSnackBar(
-                        //               const SnackBar(content: Text('请输入有效的时间间隔')),
-                        //             );
-                        //             return;
-                        //           }
-                        //           _recordPenProvider.setSendFileTimeInterval(interval);
-                        //         },
-                        //         child: const Text('设置间隔'),
-                        //       ),
-                        //     ),
-                        //   ],
-                        // ),
-                        Text(
-                          "BK OTA专区",
-                          style: TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        SizedBox(
-                          width: double.infinity,
-                          height: 32,
-                          child: _buttonItem(
-                            'BK OTA 专属设置',
-                            () => _scaffoldKey.currentState?.openEndDrawer(),
-                            bgColor: Colors.green,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
+                      ),
+                    ],
+                  ),
+                  functionBuilder: _buildFunction,
                 ),
               ),
             ),
@@ -1409,6 +1150,168 @@ class _MyHomePageState extends State<MyHomePage> {
         ),
       ),
     );
+  }
+
+  Widget _buildFunction(int id) {
+    final provider = _recordPenProvider;
+    return switch (id) {
+      2 => Row(
+        spacing: 8,
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _authkeyController,
+              style: const TextStyle(fontSize: 11),
+              decoration: _compactInput('AuthKey'),
+            ),
+          ),
+          SizedBox(
+            height: 40,
+            child: FilledButton(
+              onPressed: () => _authkeyConnect(provider),
+              child: const Text('认证'),
+            ),
+          ),
+        ],
+      ),
+      3 => _buttonItem('修改AuthKey', _showSetAuthkeyDialog),
+      4 => _buttonItem('重置AuthKey', () {
+        _runDeviceSetting('重置AuthKey', provider.unbondAuthkey);
+      }),
+      5 => _buttonItem('设置设备名', _showSetDeviceNameDialog),
+      6 => _buttonItem(provider.deviceType == 199 ? '格式化' : '重置', () {
+        _runDeviceSetting('格式化', provider.resetDevice);
+      }),
+      7 => _buttonItem('搜索设备', () {
+        setState(() => _selectedDeviceAddress = null);
+        provider.startSearch();
+      }),
+      8 => _buttonItem('停止搜索', provider.stopSearch),
+      9 => _buttonItem('是否链接', provider.isDeviceConnected),
+      10 => _buttonItem('断开链接', provider.closeConnect),
+      11 => _buttonItem('录音状态', provider.getRecordState),
+      12 => _buttonItem('开始录音', () async {
+        if (_useOggStorage) {
+          await _recordAudioQueue.run(_resetRecordAudio);
+        } else {
+          await _resetRecordAudio();
+        }
+        provider.startRecord();
+      }),
+      13 => _buttonItem('L09录音', _showL09RecordDialog),
+      14 => _buttonItem('暂停录音', provider.pauseRecord),
+      15 => _buttonItem('继续录音', provider.continueRecord),
+      16 => _buttonItem('停止录音', () {
+        provider.stopRecord();
+        _scheduleFinishRecordAudio();
+      }),
+      17 => _buttonItem('▶ 播放录音', () {
+        _playAudio(_recordAudioName, '录音');
+      }, enabled: _recordAudioExists),
+      18 => _buttonItem('后连：获取录音文件名', provider.getFileName),
+      19 => _buttonItem('后连：获取时长和流', provider.getTimeOnlyRecording),
+      20 => _buttonItem('获取电量', provider.getCBC),
+      21 => _buttonItem('获取容量', provider.getDeviceCapacity),
+      22 => _buttonItem('获取SN', provider.getSN),
+      23 => _buttonItem('给设备下发时间', provider.asyncNowTime),
+      24 => _buttonItem('获取当前增益', provider.getDeviceGain),
+      25 => _buttonItem('设置当前增益', () => provider.setDeviceGain(3)),
+      26 => _buttonItem('通知APP前后台', () => provider.sendAppShowState(2)),
+      27 => _buttonItem('获取固件版本号', provider.getDeviceVersion),
+      28 => _buttonItem('文件列表', provider.getRecordFileList),
+      29 => _buttonItem('删除文件', () {
+        final name = _requireSelectedTransferFile();
+        if (name != null) provider.deleteFile(name);
+      }),
+      30 => _buttonItem('⚠️删除所有文件', provider.deleteAllFile),
+      31 => _buttonItem('传输文件', () async {
+        final name = _requireSelectedTransferFile();
+        if (name == null || _transferStarting) return;
+        _transferStarting = true;
+        try {
+          await _transferAudioQueue.run(() async {
+            await _resetTransferAudio();
+            await provider.sendFileFromPenToPhoneWithOffset(name, 0);
+          });
+        } catch (e) {
+          Log.e('[蓝牙调试][文件传输] 启动传输失败: $e');
+        } finally {
+          _transferStarting = false;
+        }
+      }),
+      32 => _buttonItem('停止传输', () {
+        final name = _requireSelectedTransferFile();
+        if (name != null) provider.stopTransferFile(name);
+      }),
+      33 => _buttonItem('▶ 播放传输', () {
+        _playAudio(_transferAudioName, '传输音频');
+      }, enabled: _transferAudioExists),
+      34 => _buttonItem('⏹ 停止播放', _audioPlayer.stop),
+      35 => _buttonItem('返回开始', provider.startBtnBackRecord),
+      36 => _buttonItem('返回暂停', () {}),
+      37 => _buttonItem('返回继续', () {}),
+      38 => _buttonItem('返回停止', () {}),
+      39 => _buttonItem('打开wifi', provider.openWiFi),
+      40 =>
+        [201, 202].contains(provider.deviceType)
+            ? _buttonItem('密码连接', _showWifiPasswordConnectDialog)
+            : _buttonItem(
+                '连接(${provider.wifiName})',
+                provider.connectDeviceWiFi,
+              ),
+      41 => _buttonItem('关闭wifi', provider.closeWiFi),
+      42 => _buttonItem('wifi断开设备', provider.disconnectDeviceWiFi),
+      43 => _buttonItem('连接状态', provider.getDeviceWiFiState),
+      44 => _buttonItem('手机状态', provider.getWiFiHotspotState),
+      45 => _buttonItem('一键连接WiFi', () {
+        _showWifiPasswordConnectDialog(quickConnect: true);
+      }),
+      46 => _buttonItem('修改热点密码', _showSetWifiPasswordDialog),
+      47 => _buttonItem('复位设备名', provider.resetDeviceName),
+      48 => _buttonItem('设置直传Wi-Fi', _showSetWifiDirectDialog),
+      49 => _buttonItem('设置上传URL', _showSetRemoteUrlDialog),
+      50 => _buttonItem('复位直传Wi-Fi', provider.resetWifiDirect),
+      51 => _buttonItem('获取直传Wi-Fi', provider.getWifiDirect),
+      52 => _buttonItem('固件升级code', provider.getDeviceVersionCode),
+      53 => _buttonItem('低功耗状态', provider.getDeviceLowPowerRecordMode),
+      54 => _buttonItem('设置低功耗', () {
+        provider.setDeviceLowPowerRecordMode(true);
+      }),
+      55 => Row(
+        spacing: 5,
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _otaFirmwareNameController,
+              readOnly: true,
+              style: const TextStyle(fontSize: 11),
+              decoration: _compactInput('固件文件（.ufw）'),
+            ),
+          ),
+          SizedBox(
+            height: 32,
+            width: 60,
+            child: _buttonItem(
+              '选择固件',
+              _pickOtaFirmware,
+              enabled: !_otaRequestInProgress,
+            ),
+          ),
+        ],
+      ),
+      56 => SizedBox(
+        height: 32,
+        child: _buttonItem(
+          '请求并发送',
+          _requestAndSendSelectedOtaFirmware,
+          enabled: _otaFirmwareFile != null && !_otaRequestInProgress,
+        ),
+      ),
+      57 => _buttonItem('BK OTA 专属设置', () {
+        _scaffoldKey.currentState?.openEndDrawer();
+      }, bgColor: Colors.green),
+      _ => throw ArgumentError.value(id, 'id', '未配置的 Demo 功能编号'),
+    };
   }
 
   Widget _buildAudioRatePanel(RecordPenProvider provider) {
@@ -1486,11 +1389,9 @@ class _MyHomePageState extends State<MyHomePage> {
   /// 控制台风格的日志展示面板
   Widget _buildLogPanel() {
     const bgColor = Color(0xFF1E1E2E);
-    const headerColor = Color(0xFF2A2A3C);
     const borderColor = Color(0xFF3A3A4F);
 
     return Container(
-      height: 140,
       decoration: BoxDecoration(
         color: bgColor,
         borderRadius: BorderRadius.circular(12),
@@ -1506,51 +1407,15 @@ class _MyHomePageState extends State<MyHomePage> {
       clipBehavior: Clip.antiAlias,
       child: Column(
         children: [
-          // 顶部标题栏
-          Container(
-            height: 32,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            decoration: const BoxDecoration(
-              color: headerColor,
-              border: Border(bottom: BorderSide(color: borderColor)),
-            ),
-            child: Row(
-              children: [
-                // _dot(const Color(0xFFFF5F56)),
-                // const SizedBox(width: 6),
-                // _dot(const Color(0xFFFFBD2E)),
-                // const SizedBox(width: 6),
-                // _dot(const Color(0xFF27C93F)),
-                const Icon(Icons.terminal, size: 14, color: Color(0xFF8A8AA0)),
-                const SizedBox(width: 6),
-                const Text(
-                  '日志',
-                  style: TextStyle(
-                    color: Color(0xFFCDCDDA),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const Spacer(),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 2,
-                  ),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF3A3A4F),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Text(
-                    '${_data.length} 行',
-                    style: const TextStyle(
-                      color: Color(0xFF9A9AB0),
-                      fontSize: 11,
-                    ),
-                  ),
-                ),
-              ],
-            ),
+          DemoLogHeader(
+            lineCount: _data.length,
+            autoScroll: _autoScrollLog,
+            onAutoScrollChanged: (enabled) {
+              setState(() => _autoScrollLog = enabled);
+              if (enabled) _scrollLogToBottom();
+            },
+            onClear: () => setState(_data.clear),
+            onCopy: _copyLogToClipboard,
           ),
           // 日志内容
           Expanded(
@@ -1806,6 +1671,46 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 
+  Future<void> _showL09RecordDialog() async {
+    final enabled = await showDialog<bool>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: const Text('L09录音：选择麦克风'),
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: FilledButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('数字麦（关闭骨麦）'),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('骨麦（关闭数字麦）'),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('取消'),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (enabled == null || !mounted || _recordPenProvider.isRecording) return;
+    if (_useOggStorage) {
+      await _recordAudioQueue.run(_resetRecordAudio);
+    } else {
+      await _resetRecordAudio();
+    }
+    if (!mounted) return;
+    await _recordPenProvider.startRecordWithBoneMic(enabled);
+  }
+
   Future<void> _showSetDeviceNameDialog() async {
     final controller = TextEditingController();
     final name = await _showInputDialog(
@@ -1949,11 +1854,12 @@ class _MyHomePageState extends State<MyHomePage> {
     return FilledButton(
       onPressed: enabled ? onTap : null,
       style: FilledButton.styleFrom(
-        padding: EdgeInsets.zero,
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
         backgroundColor: bgColor,
         disabledBackgroundColor: bgColor?.withValues(alpha: 0.38),
       ),
       child: FittedBox(
+        fit: BoxFit.scaleDown,
         child: Text(title, style: const TextStyle(fontSize: 12)),
       ),
     );
