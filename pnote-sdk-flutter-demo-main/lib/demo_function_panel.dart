@@ -5,7 +5,7 @@ import 'provider_record_pen.dart';
 
 // 编号及行顺序对应 Demo功能列表.md，新增型号只需维护此配置。
 const _commonRows = [
-  [7, 8, 9, 10],
+  [7, 8, 9, 10, 66],
   [12, 14, 15, 16, 11],
   [20, 21, 22, 24, 27],
   [28, 31, 32, 29, 30],
@@ -21,6 +21,10 @@ const _cb08OtaRows = [
   _wifiRow,
   [44, 45, 52, 53, 54],
   [55, 56],
+];
+const _cb08HeartbeatRows = [
+  ..._cb08OtaRows,
+  [63, 64, 65],
 ];
 const _deviceLayouts = <int, ({String name, List<List<int>> rows})>{
   1: (
@@ -40,6 +44,8 @@ const _deviceLayouts = <int, ({String name, List<List<int>> rows})>{
     ],
   ),
   8: (name: 'CB08', rows: _cb08OtaRows),
+  40: (name: 'CB08', rows: _cb08HeartbeatRows),
+  48: (name: 'CB08（新版7911）', rows: _cb08OtaRows),
   198: (
     name: 'C08-FB',
     rows: [
@@ -143,6 +149,15 @@ class DemoFunctionPanel extends StatelessWidget {
         children: [
           Expanded(flex: 3, child: functionBuilder(55)),
           Expanded(flex: 2, child: functionBuilder(56)),
+        ],
+      );
+    }
+    if (ids.first == 63) {
+      return Row(
+        spacing: 5,
+        children: [
+          for (final id in ids)
+            Expanded(flex: id == 65 ? 1 : 2, child: functionBuilder(id)),
         ],
       );
     }

@@ -1,5 +1,7 @@
 # Demo 功能列表（仅关注在展开 / 收起音频传输速率下方的按钮方法，顶部的日志台和传输速率模块位置功能不做改动）
 
+测试页对所有设备类型提供文件传输测试。全部文件测试按最新设备文件列表逐个传输；单文件测试可以选择文件和设置重复次数，每次从文件起点传输。界面显示当前、最低、最高和平均传输速度，以及成功次数、失败原因与次数。传输测试期间固定关闭存储和解码，测试结束后恢复原设置。
+
 ## 一、SDK 提供功能
 
 | 编号 | 功能 | Android SDK 方法 | iOS SDK 方法 |
@@ -43,7 +45,7 @@
 | SDK-037 | 发送 OTA 固件 | `sendOtaFile` | `sendOtaFile` |
 | SDK-038 | 查询低功耗录音模式 | `getDeviceLowPowerRecordMode` | `getDeviceLowPowerRecordMode` |
 | SDK-039 | 设置低功耗录音模式 | `setDeviceLowPowerRecordMode` | `setDeviceLowPowerRecordMode` |
-| SDK-040 | 设置文件传输间隔 | `sendFileTimeInterval` | — |
+| SDK-040 | 设置文件传输间隔 | `sendFileTimeInterval` | `sendFileTimeInterval:` |
 | SDK-041 | 设备业务数据回调 | `onDeviceDataEvent` | `deviceDataEvent` |
 | SDK-042 | 实时录音数据回调 | `onDeviceRecordData` | `deviceRecordData` |
 | SDK-043 | 文件数据回调 | `onDeviceFileData` | `deviceFileData` |
@@ -68,6 +70,8 @@
 | SDK-062 | 设置上传 URL | `SetRemoteURL` | `setRemoteURL` |
 | SDK-063 | 复位直传 Wi-Fi | `ResetWifi` | `resetWiFiDirect` |
 | SDK-064 | 获取直传 Wi-Fi | `GetWifi` | `getWiFiDirect` |
+| SDK-065 | 开关设备心跳 | `setHeartbeatDataState` | `setHeartbeatDataState:` |
+| SDK-066 | 回复设备心跳 | `sendBackHeartbeatData` | `sendBackHeartbeatData` |
 
 ## 二、Demo 现有按钮或输入框功能
 
@@ -137,12 +141,16 @@
 | DEMO-060 | 停止HTTP | — |
 | DEMO-061 | 发送升级URL / BK 升级 URL 显示 | SDK-053 |
 | DEMO-062 | BK版本号 | SDK-052 |
+| DEMO-063 | 设备发送开关（连接后默认开启，`cmd=102` 的 `data.heartbeat_state` 为 `00` 表示开启、`01` 表示关闭） | SDK-065 |
+| DEMO-064 | App 回复开关 | 收到 `cmd=101` 时按此设置调用 SDK-066，默认开启 |
+| DEMO-065 | 设置传输间隔 | SDK-040 |
+| DEMO-066 | 分享音频 / 将已保存的实时录音或传输音频导出到本地文件夹 | — |
 
 ## 三、所有设备公共方法（显示在 展开 / 收起音频传输速率下方）
 demo 下方按钮排布
 | 文件列表选择框 |独占一行
 | DEMO-001 |独占一行
-| DEMO-007 | DEMO-008 | DEMO-009 | DEMO-010 |表示每行显示几个按钮，靠左排列 后面都按此规则
+| DEMO-007 | DEMO-008 | DEMO-009 | DEMO-010 | DEMO-066 |表示每行显示几个按钮，靠左排列 后面都按此规则
 | DEMO-012 | DEMO-014 | DEMO-015 | DEMO-016 | DEMO-011 |
 | DEMO-020 | DEMO-021 | DEMO-022 | DEMO-024 | DEMO-027 |
 | DEMO-028 | DEMO-031 | DEMO-032 | DEMO-029 | DEMO-030 |
@@ -155,16 +163,25 @@ demo 下方按钮排布
 | DEMO-035 | DEMO-036 | DEMO-037 | DEMO-038 | DEMO-026 |
 | DEMO-018 | DEMO-019 | DEMO-053 | DEMO-054 |  |
 
-设备型号 3 4 8
+设备型号 3 4 8 40
 型号名称：CB08
 | DEMO-039 | DEMO-040 连接（热点名） | DEMO-042 | DEMO-041 | DEMO-043 |
 | DEMO-044 | DEMO-045 | DEMO-052 | DEMO-053 | DEMO-054 |
 | DEMO-055 | DEMO-056 |两个方法占一行
 
+设备型号 40 额外显示以下一行。Demo 暂将设备名包含“外贸”的设备按型号 40 处理。
+| DEMO-063 | DEMO-064 | DEMO-065 |  |  |
+
 设备型号 5
 型号名称：D10
 | DEMO-048 | DEMO-051 | DEMO-050 | DEMO-049 |  |
 | DEMO-005 | DEMO-047 |  |  |  |
+
+设备型号 48
+型号名称：CB08（新版7911）
+| DEMO-039 | DEMO-040 连接（热点名） | DEMO-042 | DEMO-041 | DEMO-043 |
+| DEMO-044 | DEMO-045 | DEMO-052 | DEMO-053 | DEMO-054 |
+| DEMO-055 | DEMO-056 |两个方法占一行
 
 设备型号 198
 型号名称：C08-FB

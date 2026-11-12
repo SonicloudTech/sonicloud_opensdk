@@ -141,6 +141,7 @@ class RecordPenRecordService {
       });
     } catch (e) {
       Log.e('❌ 传输文件失败: $e');
+      rethrow;
     }
   }
 
@@ -151,6 +152,7 @@ class RecordPenRecordService {
       await _methodChannel.invokeMethod('stopGetFile', {'fileName': fileName});
     } catch (e) {
       Log.e('❌ 停止传输失败: $e');
+      rethrow;
     }
   }
 }

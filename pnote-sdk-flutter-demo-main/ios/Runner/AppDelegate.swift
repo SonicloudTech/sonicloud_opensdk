@@ -3,13 +3,16 @@ import UIKit
 
 @main
 @objc class AppDelegate: FlutterAppDelegate {
+    private var fileShareResult: FlutterResult?
+
     override func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
         GeneratedPluginRegistrant.register(with: self)
         
-        if let controller = UIApplication.shared.connectedScenes
+        if let controller = (window?.rootViewController as? FlutterViewController) ??
+            UIApplication.shared.connectedScenes
             .compactMap({ ($0 as? UIWindowScene)?.windows.first })
             .first?.rootViewController as? FlutterViewController {
             
@@ -23,9 +26,11 @@ import UIKit
         
         
         let channel = FlutterMethodChannel(name: "com.soni.soni_sdk_demo/recordPen", binaryMessenger: self.window?.rootViewController as! FlutterBinaryMessenger)
-        channel.setMethodCallHandler { (call: FlutterMethodCall, result: FlutterResult) -> Void in
+        channel.setMethodCallHandler { (call: FlutterMethodCall, result: @escaping FlutterResult) -> Void in
             print("iOS原生收到指令\(call.method)    参数：\(call.arguments)");
             switch(call.method) {
+            case "shareFile":
+                self.shareFile(call, result: result)
             case "connect": // 链接蓝牙
                 if let args = call.arguments as? [String: Any],
                    let name = args["name"] as? String {
@@ -311,6 +316,27 @@ import UIKit
                     print("参数错误，state 缺失")
                 }
                 result(nil)
+            case "sendFileTimeInterval":
+                guard let args = call.arguments as? [String: Any],
+                      let interval = args["interval"] as? Int,
+                      (13...255).contains(interval) else {
+                    result(FlutterError(code: "INVALID_ARGUMENT", message: "传输间隔须为 13–255 毫秒", details: nil))
+                    return
+                }
+                PNode.shared().sendFileTimeInterval(UInt8(interval))
+                result(nil)
+            case "setHeartbeatDataState":
+                guard let args = call.arguments as? [String: Any],
+                      let state = args["state"] as? Int,
+                      (0...1).contains(state) else {
+                    result(FlutterError(code: "INVALID_ARGUMENT", message: "心跳开关仅支持 0 或 1", details: nil))
+                    return
+                }
+                PNode.shared().setHeartbeatDataState(Int32(state))
+                result(nil)
+            case "sendBackHeartbeatData":
+                PNode.shared().sendBackHeartbeatData()
+                result(nil)
             case "getBKHDVersion":
                 PNode.shared().getBKHDVersion()
                 result(nil)
@@ -336,6 +362,46 @@ import UIKit
     }
     
     var eventSink: FlutterEventSink?
+
+    private func shareFile(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard fileShareResult == nil else {
+            result(FlutterError(code: "FILE_SHARE_BUSY", message: "正在分享文件", details: nil))
+            return
+        }
+        guard let args = call.arguments as? [String: Any],
+              let path = args["path"] as? String,
+              FileManager.default.isReadableFile(atPath: path) else {
+            result(FlutterError(code: "INVALID_SHARE_FILE", message: "分享文件不存在", details: nil))
+            return
+        }
+        guard var presenter = window?.rootViewController else {
+            result(FlutterError(code: "FILE_SHARE_FAILED", message: "无法打开系统分享界面", details: nil))
+            return
+        }
+        while let presented = presenter.presentedViewController {
+            presenter = presented
+        }
+        let picker = UIActivityViewController(
+            activityItems: [URL(fileURLWithPath: path)], applicationActivities: nil
+        )
+        picker.completionWithItemsHandler = { [weak self] _, completed, _, error in
+            guard let self = self else { return }
+            let reply = self.fileShareResult
+            self.fileShareResult = nil
+            if let error = error {
+                reply?(FlutterError(code: "FILE_SHARE_FAILED", message: "分享文件失败", details: error.localizedDescription))
+            } else {
+                reply?(completed)
+            }
+        }
+        if let popover = picker.popoverPresentationController {
+            popover.sourceView = presenter.view
+            popover.sourceRect = CGRect(x: presenter.view.bounds.midX, y: presenter.view.bounds.midY, width: 1, height: 1)
+            popover.permittedArrowDirections = []
+        }
+        fileShareResult = result
+        presenter.present(picker, animated: true)
+    }
 }
 
 extension AppDelegate: WindBleDelegate {
