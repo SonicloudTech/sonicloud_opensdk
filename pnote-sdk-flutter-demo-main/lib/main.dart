@@ -12,6 +12,8 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
+import 'package:soni_sdk_demo/service_audio_export.dart';
+import 'package:soni_sdk_demo/service_file_share.dart';
 import 'package:soni_sdk_demo/service_network_permission.dart';
 import 'package:soni_sdk_demo/wave_write.dart';
 
@@ -19,12 +21,16 @@ import 'bluetooth_constants.dart';
 import 'demo_function_panel.dart';
 import 'demo_home_tabs.dart';
 import 'demo_log_header.dart';
+import 'demo_test_page.dart';
 import 'demo_theme.dart';
 import 'device_auth_config.dart';
+import 'file_transfer_test/file_transfer_test_runner.dart';
 import 'log_clipboard.dart';
 import 'logger.dart';
 import 'ogg_opus_writer.dart';
+import 'ota_automation/ota_automation_runner.dart';
 import 'provider_record_pen.dart';
+import 'test_report.dart';
 
 void main() async {
   /// 等待初始化
@@ -83,10 +89,13 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> {
   late RecordPenProvider _recordPenProvider;
+  late OtaAutomationRunner _otaRunner;
+  late FileTransferTestRunner _transferTestRunner;
+  final TestReportStore _testReports = TestReportStore();
   final ScrollController _scrollController = ScrollController();
   final List _data = [];
   bool _audioRateExpanded = false;
-  bool _autoScrollLog = false;
+  bool _autoScrollLog = true;
 
   late SimpleOpusDecoder _recordDecoder;
   late SimpleOpusDecoder _transferDecoder;
@@ -123,11 +132,13 @@ class _MyHomePageState extends State<MyHomePage> {
   OggOpusWriter? _transferOggWriter;
   final AudioTaskQueue _recordAudioQueue = AudioTaskQueue();
   final AudioTaskQueue _transferAudioQueue = AudioTaskQueue();
+  bool _recordStarting = false;
   bool _transferStarting = false;
-  bool _recordFinishScheduled = false;
+  Future<void>? _recordFinishRequest;
   bool _recordAudioFinished = false;
   bool _recordAudioExists = false;
   bool _transferAudioExists = false;
+  bool _audioExportInProgress = false;
   String _appVersion = '';
   final TextEditingController _sendFileTimeIntervalController =
       TextEditingController(text: '13');
@@ -154,6 +165,20 @@ class _MyHomePageState extends State<MyHomePage> {
     }
 
     _recordPenProvider = Provider.of<RecordPenProvider>(context, listen: false);
+    _otaRunner = OtaAutomationRunner(
+      _recordPenProvider, canStartTest: () => !_transferTestRunner.isBusy,
+      onReport: _testReports.append,
+    );
+    _transferTestRunner = FileTransferTestRunner(
+      _recordPenProvider,
+      startTransfer: (name, canSend) => _startTransferFile(name, canSend: canSend),
+      setStorage: (enabled) async {
+        if (!enabled) await _recordFinishRequest;
+        await _setAudioDecodeAndStoreEnabled(enabled);
+      },
+      canStartTest: () => !_otaRunner.isRunning,
+      onReport: _testReports.append,
+    );
     _recordPenProvider.addListener(_syncAuthkeyForDevice);
     _syncAuthkeyForDevice();
     _recordPenProvider.init();
@@ -166,12 +191,10 @@ class _MyHomePageState extends State<MyHomePage> {
           await _transferAudioQueue.run(
             () => _processAudioFrame(frame, audioType),
           );
-        } else if (_useOggStorage) {
+        } else {
           await _recordAudioQueue.run(
             () => _processAudioFrame(frame, audioType),
           );
-        } else {
-          await _processAudioFrame(frame, audioType);
         }
         _logAudioProgress(frame, audioType);
         return;
@@ -280,7 +303,24 @@ class _MyHomePageState extends State<MyHomePage> {
 
   String _formatEventLog(dynamic event) {
     if (event is! Map) return event.toString();
+    if (event[RecordPenProvider.otaTransferErrorKey] case final String error) {
+      return '[蓝牙调试][OTA升级] 失败：$error';
+    }
+    final heartbeatLog = event['heartbeatLog'];
+    if (heartbeatLog is String) return '[蓝牙调试][心跳] $heartbeatLog';
+    final intervalLog = event['设置传输间隔'];
+    if (intervalLog is String) return '[蓝牙调试][传输间隔] $intervalLog';
     final cmd = event['cmd']?.toString();
+    if (cmd == '100' || cmd == '101' || cmd == '102') {
+      final data = event['data'];
+      final intervalState = data is Map
+          ? data['offline_transfer_interval_state']?.toString()
+          : null;
+      final failed = event['state']?.toString() != '0' ||
+          (cmd == '100' && intervalState != '0');
+      final category = cmd == '100' ? '传输间隔' : '心跳';
+      return '[蓝牙调试][$category] ${failed ? '异常 ' : ''}$event';
+    }
     if (cmd == '5') {
       final data = event['data'] as Map?;
       final state = data?['record_file_state']?.toString();
@@ -360,24 +400,38 @@ class _MyHomePageState extends State<MyHomePage> {
 
   Future<void> _closeAudioSinks() async {
     try {
+      await _recordAudioQueue.run(() async {
+        try {
+          await _discardOggAudio(_recordOggWriter, _recordAudioName);
+          await _recordPcmSink?.flush();
+          await _recordPcmSink?.close();
+        } finally {
+          _recordPcmSink = null;
+          _recordOggWriter = null;
+          _recordFinishRequest = null;
+        }
+      });
       if (_useOggStorage) {
-        await _recordAudioQueue.run(() async {
-          await _recordOggWriter?.close();
-        });
-        await _transferOggWriter?.close();
+        await _discardOggAudio(_transferOggWriter, _transferAudioName);
       }
-      await _recordPcmSink?.flush();
-      await _recordPcmSink?.close();
       await _transferPcmSink?.flush();
       await _transferPcmSink?.close();
     } catch (e) {
       Log.e('关闭音频写入失败: $e');
     } finally {
-      _recordPcmSink = null;
       _transferPcmSink = null;
-      _recordOggWriter = null;
       _transferOggWriter = null;
-      _recordFinishScheduled = false;
+    }
+  }
+
+  Future<void> _discardOggAudio(OggOpusWriter? writer, String name) async {
+    if (writer == null) return;
+    final dir = await _ensureDirectory();
+    final pending = File('${dir.path}/$name.part');
+    try {
+      await writer.close();
+    } finally {
+      if (await pending.exists()) await pending.delete();
     }
   }
 
@@ -491,6 +545,30 @@ class _MyHomePageState extends State<MyHomePage> {
 
   bool _isRecordAudio(String audioType) => audioType == AudioDataType.record;
 
+  Future<void> _startRecord({bool? boneMic}) async {
+    if (_recordStarting || _recordPenProvider.isRecording) return;
+    _recordStarting = true;
+    try {
+      Future<void>? pendingFinish;
+      await _recordAudioQueue.run(() async {
+        pendingFinish = _recordFinishRequest;
+      });
+      await pendingFinish;
+      await _recordAudioQueue.run(() async {
+        if (!mounted || _recordPenProvider.isRecording) return;
+        await _resetRecordAudio();
+        if (!mounted) return;
+        if (boneMic == null) {
+          await _recordPenProvider.startRecord();
+        } else {
+          await _recordPenProvider.startRecordWithBoneMic(boneMic);
+        }
+      });
+    } finally {
+      _recordStarting = false;
+    }
+  }
+
   Future<void> _resetRecordAudio() async {
     if (!_recordPenProvider.audioDecodeAndStoreEnabled) return;
     final dir = await _ensureDirectory();
@@ -499,11 +577,11 @@ class _MyHomePageState extends State<MyHomePage> {
     _recordOpusBytes = 0;
     _lastRecordAudioLogAt = null;
     _recordAudioFinished = false;
-    _recordFinishScheduled = false;
+    _recordFinishRequest = null;
     if (_useOggStorage) {
       await _recordOggWriter?.close();
       _recordOggWriter = OggOpusWriter(
-        File('${dir.path}/$_recordAudioName').openWrite(),
+        File('${dir.path}/$_recordAudioName.part').openWrite(),
       );
       if (mounted) setState(() => _recordAudioExists = false);
       return;
@@ -514,16 +592,31 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   Future<void> _scheduleFinishRecordAudio() async {
-    if (!_recordPenProvider.audioDecodeAndStoreEnabled) return;
-    if (_recordFinishScheduled || _recordAudioFinished) return;
-    _recordFinishScheduled = true;
-    await Future.delayed(const Duration(seconds: 1));
-    if (_useOggStorage) {
-      await _recordAudioQueue.run(_finishRecordAudio);
-    } else {
-      await _finishRecordAudio();
-    }
-    _recordFinishScheduled = false;
+    await _recordAudioQueue.run(() async {
+      if (!_recordPenProvider.audioDecodeAndStoreEnabled) return;
+      if (_recordFinishRequest != null || _recordAudioFinished) return;
+      late final Future<void> request;
+      request = Future<void>.delayed(const Duration(seconds: 1), () {
+        return _recordAudioQueue.run(() async {
+          if (_recordFinishRequest != request) return;
+          try {
+            await _finishRecordAudio();
+          } finally {
+            _recordFinishRequest = null;
+          }
+        });
+      });
+      _recordFinishRequest = request;
+    });
+  }
+
+  Future<void> _startTransferFile(String name, {bool Function()? canSend}) async {
+    await _transferAudioQueue.run(() async {
+      if (canSend?.call() == false) return;
+      await _resetTransferAudio();
+      if (canSend?.call() == false) return;
+      await _recordPenProvider.sendFileFromPenToPhoneWithOffset(name, 0);
+    });
   }
 
   Future<void> _resetTransferAudio() async {
@@ -536,7 +629,7 @@ class _MyHomePageState extends State<MyHomePage> {
     if (_useOggStorage) {
       await _transferOggWriter?.close();
       _transferOggWriter = OggOpusWriter(
-        File('${dir.path}/$_transferAudioName').openWrite(),
+        File('${dir.path}/$_transferAudioName.part').openWrite(),
       );
       if (mounted) setState(() => _transferAudioExists = false);
       return;
@@ -601,12 +694,18 @@ class _MyHomePageState extends State<MyHomePage> {
       throw Exception('PCM 文件不存在: $pcmPath');
     }
 
-    await WavWriter.writeWavFile(
-      filePath: wavPath,
-      pcmFile: pcmFile,
-      sampleRate: 16000,
-      channels: 1,
-    );
+    final pending = File('$wavPath.part');
+    try {
+      await WavWriter.writeWavFile(
+        filePath: pending.path,
+        pcmFile: pcmFile,
+        sampleRate: 16000,
+        channels: 1,
+      );
+      await pending.rename(wavPath);
+    } finally {
+      if (await pending.exists()) await pending.delete();
+    }
 
     Log.f('PCM 转 WAV 成功: $wavPath');
   }
@@ -666,6 +765,7 @@ class _MyHomePageState extends State<MyHomePage> {
 
       final duration = _transferPcmSamples / 16000;
       final fileSize = await _transferPcmFile?.length() ?? 0;
+      if (fileSize == 0) return;
       Log.f(
         '传输 PCM: $_transferPcmName, ${duration.toStringAsFixed(2)}秒, $fileSize 字节',
       );
@@ -692,14 +792,22 @@ class _MyHomePageState extends State<MyHomePage> {
     final isRecord = _isRecordAudio(audioType);
     final writer = isRecord ? _recordOggWriter : _transferOggWriter;
     if (writer == null) return;
-    await writer.close();
     final name = isRecord ? _recordAudioName : _transferAudioName;
     if (isRecord) {
-      _recordAudioFinished = true;
       _recordOggWriter = null;
     } else {
       _transferOggWriter = null;
     }
+    final dir = await _ensureDirectory();
+    final pending = File('${dir.path}/$name.part');
+    try {
+      await writer.close();
+      if (writer.durationSeconds == 0) return;
+      await pending.rename('${dir.path}/$name');
+    } finally {
+      if (await pending.exists()) await pending.delete();
+    }
+    if (isRecord) _recordAudioFinished = true;
     await _refreshAudioExists();
     final message = '[蓝牙调试][${isRecord ? '录音' : '文件传输'}] Ogg封装完成，已保存: $name';
     _appendLog(message);
@@ -757,8 +865,61 @@ class _MyHomePageState extends State<MyHomePage> {
     }
   }
 
+  Future<void> _shareAudio() async {
+    if (_audioExportInProgress) return;
+    setState(() => _audioExportInProgress = true);
+    try {
+      final dir = await _ensureDirectory();
+      final files = <String, File>{};
+      for (final (label, name) in [
+        ('实时录音', _recordAudioName),
+        ('传输音频', _transferAudioName),
+      ]) {
+        final file = File('${dir.path}/$name');
+        if (await AudioFileExporter.isSaved(file)) files[label] = file;
+      }
+      if (!mounted) return;
+      if (files.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('暂无已保存的音频，请先录音或传输文件')),
+        );
+        return;
+      }
+      final file = files.length == 1
+          ? files.values.single
+          : await showDialog<File>(
+              context: context,
+              builder: (context) => SimpleDialog(
+                title: const Text('选择要分享的音频'),
+                children: [
+                  for (final entry in files.entries)
+                    SimpleDialogOption(
+                      onPressed: () => Navigator.pop(context, entry.value),
+                      child: Text(entry.key),
+                    ),
+                ],
+              ),
+            );
+      if (file == null || !mounted) return;
+      await FileSharer.share(
+        file,
+        await getTemporaryDirectory(),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('分享音频失败：$error')),
+      );
+    } finally {
+      if (mounted) setState(() => _audioExportInProgress = false);
+    }
+  }
+
   @override
   void dispose() {
+    _transferTestRunner.dispose();
+    _otaRunner.dispose();
+    _testReports.dispose();
     _recordPenProvider.removeListener(_syncAuthkeyForDevice);
     _audioPlayer.dispose();
     _scrollController.dispose();
@@ -882,6 +1043,47 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 
+  Widget _heartbeatSwitch(
+    String title,
+    bool value,
+    ValueChanged<bool>? onChanged,
+  ) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Flexible(child: Text(title, style: const TextStyle(fontSize: 12))),
+        SizedBox(
+          width: 44,
+          height: 32,
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Switch(
+              value: value,
+              onChanged: onChanged,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _showSetTransferIntervalDialog() async {
+    final input = await _showInputDialog(
+      title: '设置传输间隔',
+      controller: _sendFileTimeIntervalController,
+      hint: '13–255 毫秒',
+      keyboardType: TextInputType.number,
+    );
+    if (input == null || !mounted) return;
+    await _runDeviceSetting('设置传输间隔', () async {
+      final interval = int.tryParse(input, radix: 10);
+      if (interval == null) throw const FormatException('请输入整数毫秒值');
+      await _recordPenProvider.setSendFileTimeInterval(interval);
+    });
+  }
+
   String? _requireSelectedTransferFile() {
     final name = _recordPenProvider.transFileName;
     if (name.isNotEmpty) return name;
@@ -894,8 +1096,8 @@ class _MyHomePageState extends State<MyHomePage> {
   Future<void> _pickOtaFirmware() async {
     try {
       final result = await FilePicker.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: ['ufw'],
+        type: Platform.isIOS ? FileType.any : FileType.custom,
+        allowedExtensions: Platform.isIOS ? null : ['ufw'],
         withData: true,
       );
       if (result == null || result.files.isEmpty) return;
@@ -939,6 +1141,31 @@ class _MyHomePageState extends State<MyHomePage> {
     }
   }
 
+  Future<bool> _confirmLeaveTest() async {
+    if (!_otaRunner.isRunning && !_transferTestRunner.isRunning) return true;
+    final interrupt = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('是否中断测试？'),
+        content: const Text('当前测试正在进行，返回设备页会中断本次测试。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('继续测试'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('中断并返回'),
+          ),
+        ],
+      ),
+    );
+    if (interrupt != true || !mounted) return false;
+    await _otaRunner.interrupt();
+    await _transferTestRunner.interrupt();
+    return true;
+  }
+
   Future<void> _requestAndSendSelectedOtaFirmware() async {
     final file = _otaFirmwareFile;
     if (file == null || _otaRequestInProgress) return;
@@ -971,6 +1198,13 @@ class _MyHomePageState extends State<MyHomePage> {
 
     return DemoHomeTabs(
       scaffoldKey: _scaffoldKey,
+      testPage: DemoTestPage(
+        provider: recordPenProvider,
+        runner: _otaRunner,
+        transferRunner: _transferTestRunner,
+        reportStore: _testReports,
+      ),
+      onLeaveTest: _confirmLeaveTest,
       appBar: AppBar(
         toolbarHeight: 40,
         titleSpacing: 8,
@@ -1047,6 +1281,7 @@ class _MyHomePageState extends State<MyHomePage> {
                     ),
                     selectedItemBuilder: (context) => recordPenProvider
                         .recordFiles
+                        .reversed
                         .map(
                           (file) => Align(
                             alignment: Alignment.centerLeft,
@@ -1063,6 +1298,7 @@ class _MyHomePageState extends State<MyHomePage> {
                         )
                         .toList(),
                     items: recordPenProvider.recordFiles
+                        .reversed
                         .map(
                           (file) => DropdownMenuItem<String>(
                             value: file.name,
@@ -1113,7 +1349,9 @@ class _MyHomePageState extends State<MyHomePage> {
                                 (device) => DropdownMenuItem<String>(
                                   value: device['address'],
                                   child: Text(
-                                    device['address'] ?? '',
+                                    '${device['address'] ?? ''}  ${device['name'] ?? ''}',
+                                    maxLines: 1,
+                                    softWrap: false,
                                     overflow: TextOverflow.ellipsis,
                                     style: const TextStyle(fontSize: 11),
                                   ),
@@ -1190,14 +1428,7 @@ class _MyHomePageState extends State<MyHomePage> {
       9 => _buttonItem('是否链接', provider.isDeviceConnected),
       10 => _buttonItem('断开链接', provider.closeConnect),
       11 => _buttonItem('录音状态', provider.getRecordState),
-      12 => _buttonItem('开始录音', () async {
-        if (_useOggStorage) {
-          await _recordAudioQueue.run(_resetRecordAudio);
-        } else {
-          await _resetRecordAudio();
-        }
-        provider.startRecord();
-      }),
+      12 => _buttonItem('开始录音', _startRecord),
       13 => _buttonItem('L09录音', _showL09RecordDialog),
       14 => _buttonItem('暂停录音', provider.pauseRecord),
       15 => _buttonItem('继续录音', provider.continueRecord),
@@ -1219,20 +1450,24 @@ class _MyHomePageState extends State<MyHomePage> {
       26 => _buttonItem('通知APP前后台', () => provider.sendAppShowState(2)),
       27 => _buttonItem('获取固件版本号', provider.getDeviceVersion),
       28 => _buttonItem('文件列表', provider.getRecordFileList),
-      29 => _buttonItem('删除文件', () {
+      29 => _buttonItem('删除文件', () async {
         final name = _requireSelectedTransferFile();
-        if (name != null) provider.deleteFile(name);
+        if (name == null) return;
+        final confirmed = await _confirmDeleteFiles(fileName: name);
+        if (!confirmed || !mounted) return;
+        await provider.deleteFile(name);
       }),
-      30 => _buttonItem('⚠️删除所有文件', provider.deleteAllFile),
+      30 => _buttonItem('⚠️删除所有文件', () async {
+        final confirmed = await _confirmDeleteFiles();
+        if (!confirmed || !mounted) return;
+        await provider.deleteAllFile();
+      }),
       31 => _buttonItem('传输文件', () async {
         final name = _requireSelectedTransferFile();
         if (name == null || _transferStarting) return;
         _transferStarting = true;
         try {
-          await _transferAudioQueue.run(() async {
-            await _resetTransferAudio();
-            await provider.sendFileFromPenToPhoneWithOffset(name, 0);
-          });
+          await _startTransferFile(name);
         } catch (e) {
           Log.e('[蓝牙调试][文件传输] 启动传输失败: $e');
         } finally {
@@ -1241,7 +1476,9 @@ class _MyHomePageState extends State<MyHomePage> {
       }),
       32 => _buttonItem('停止传输', () {
         final name = _requireSelectedTransferFile();
-        if (name != null) provider.stopTransferFile(name);
+        if (name != null) {
+          _runDeviceSetting('停止传输', () => provider.stopTransferFile(name));
+        }
       }),
       33 => _buttonItem('▶ 播放传输', () {
         _playAudio(_transferAudioName, '传输音频');
@@ -1310,6 +1547,26 @@ class _MyHomePageState extends State<MyHomePage> {
       57 => _buttonItem('BK OTA 专属设置', () {
         _scaffoldKey.currentState?.openEndDrawer();
       }, bgColor: Colors.green),
+      63 => _heartbeatSwitch(
+        '设备发送心跳',
+        provider.deviceHeartbeatEnabled,
+        provider.isHeartbeatSettingPending
+            ? null
+            : (enabled) => _runDeviceSetting(
+                '设备发送心跳',
+                () => provider.setHeartbeatDataState(enabled),
+              ),
+      ),
+      64 => _heartbeatSwitch(
+        'App 回复心跳',
+        provider.heartbeatReplyEnabled,
+        (enabled) => provider.heartbeatReplyEnabled = enabled,
+      ),
+      65 => SizedBox(
+        height: 32,
+        child: _buttonItem('设置传输间隔', _showSetTransferIntervalDialog),
+      ),
+      66 => _buttonItem('分享音频', _shareAudio, enabled: !_audioExportInProgress),
       _ => throw ArgumentError.value(id, 'id', '未配置的 Demo 功能编号'),
     };
   }
@@ -1340,12 +1597,17 @@ class _MyHomePageState extends State<MyHomePage> {
               ),
               Transform.scale(
                 scale: 0.8,
-                child: Switch(
-                  value: provider.audioDecodeAndStoreEnabled,
-                  onChanged: (value) {
-                    _setAudioDecodeAndStoreEnabled(value);
-                  },
-                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                child: ListenableBuilder(
+                  listenable: _transferTestRunner,
+                  builder: (context, _) => Switch(
+                    value: provider.audioDecodeAndStoreEnabled,
+                    onChanged: _transferTestRunner.isRunning
+                        ? null
+                        : (value) {
+                            _setAudioDecodeAndStoreEnabled(value);
+                          },
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
                 ),
               ),
             ],
@@ -1461,13 +1723,20 @@ class _MyHomePageState extends State<MyHomePage> {
 
   /// 根据日志内容选择颜色，便于快速区分类型
   Color _logLineColor(String line) {
+    final isHeartbeatOrInterval = line.contains('[蓝牙调试][心跳]') ||
+        line.contains('[蓝牙调试][传输间隔]');
     if (line.contains('失败') ||
         line.contains('错误') ||
         line.contains('异常') ||
-        line.contains('error')) {
+        line.contains('error') ||
+        (isHeartbeatOrInterval &&
+            (line.contains('超时') || line.contains('结果未知')))) {
       return const Color(0xFFFF6B6B);
     }
-    if (line.contains('结束') || line.contains('成功') || line.contains('完成')) {
+    if (isHeartbeatOrInterval ||
+        line.contains('结束') ||
+        line.contains('成功') ||
+        line.contains('完成')) {
       return const Color(0xFF6BCB77);
     }
     if (line.contains('[录音音频]') || line.contains('[传输音频]')) {
@@ -1671,6 +1940,31 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 
+  Future<bool> _confirmDeleteFiles({String? fileName}) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(fileName == null ? '确认删除所有文件' : '确认删除文件'),
+        content: Text(
+          fileName == null
+              ? '确定删除设备上的所有录音文件吗？删除后无法恢复。'
+              : '确定删除文件“$fileName”吗？删除后无法恢复。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('确认删除'),
+          ),
+        ],
+      ),
+    );
+    return confirmed == true;
+  }
+
   Future<void> _showL09RecordDialog() async {
     final enabled = await showDialog<bool>(
       context: context,
@@ -1701,14 +1995,8 @@ class _MyHomePageState extends State<MyHomePage> {
         ],
       ),
     );
-    if (enabled == null || !mounted || _recordPenProvider.isRecording) return;
-    if (_useOggStorage) {
-      await _recordAudioQueue.run(_resetRecordAudio);
-    } else {
-      await _resetRecordAudio();
-    }
-    if (!mounted) return;
-    await _recordPenProvider.startRecordWithBoneMic(enabled);
+    if (enabled == null || !mounted) return;
+    await _startRecord(boneMic: enabled);
   }
 
   Future<void> _showSetDeviceNameDialog() async {

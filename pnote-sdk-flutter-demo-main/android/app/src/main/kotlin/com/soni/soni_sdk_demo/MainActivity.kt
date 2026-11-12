@@ -1,7 +1,10 @@
 package com.soni.soni_sdk_demo
 
+import android.content.Intent
 import android.os.Bundle
 import android.util.Log
+import android.content.ClipData
+import androidx.core.content.FileProvider
 import com.soni.soni_sdk_demo.util.AES256GCMUtil
 import com.wind.pnote.ui.DeviceDataListener
 import com.wind.pnote.ui.LogDataListener
@@ -11,12 +14,12 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 import io.reactivex.plugins.RxJavaPlugins
+import java.io.File
 
 class MainActivity : FlutterFragmentActivity(), DeviceDataListener {
     private val channel = "com.soni.soni_sdk_demo/recordPen"
     private val eventChannelName = "com.soni.soni_sdk_demo/eventChannel";
     private var eventSink: EventChannel.EventSink? = null;
-
     /** B 款 AES 会话 IV，后续 packet 共用；A 款不使用 */
     private var sessionIv: ByteArray? = null
 
@@ -27,6 +30,29 @@ class MainActivity : FlutterFragmentActivity(), DeviceDataListener {
             channel
         ).setMethodCallHandler { call, result ->
             when (call.method) {
+
+                "shareFile" -> {
+                    val source = call.argument<String>("path")?.let { File(it) }
+                    if (source == null || !source.isFile) {
+                        result.error("INVALID_SHARE_FILE", "分享文件不存在", null)
+                    } else {
+                        try {
+                            val uri = FileProvider.getUriForFile(
+                                this, "$packageName.shared_files", source
+                            )
+                            val intent = Intent(Intent.ACTION_SEND).apply {
+                                type = call.argument<String>("mimeType") ?: "application/octet-stream"
+                                putExtra(Intent.EXTRA_STREAM, uri)
+                                clipData = ClipData.newUri(contentResolver, source.name, uri)
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            startActivity(Intent.createChooser(intent, "分享文件"))
+                            result.success(true)
+                        } catch (error: Exception) {
+                            result.error("FILE_SHARE_FAILED", "无法打开系统分享界面", error.message)
+                        }
+                    }
+                }
 
                 "init" -> {
                     // 初始化PNote
@@ -431,10 +457,28 @@ class MainActivity : FlutterFragmentActivity(), DeviceDataListener {
                     result.success(null)
                 }
 
-                /// 设置双通道传输间隔
-                "sendFileTimeInterval" ->{
-                    val timeInterval: Byte = (call.argument<Int>("timeInterval") ?: 13).toByte()
-                    PNote.sendFileTimeInterval(timeInterval)
+                /// 设置离线文件传输间隔
+                "sendFileTimeInterval" -> {
+                    val interval = call.argument<Int>("interval")
+                    if (interval == null || interval !in 13..255) {
+                        result.error("INVALID_ARGUMENT", "传输间隔须为 13–255 毫秒", null)
+                    } else {
+                        PNote.sendFileTimeInterval(interval.toByte())
+                        result.success(null)
+                    }
+                }
+                "setHeartbeatDataState" -> {
+                    val state = call.argument<Int>("state")
+                    if (state == null || state !in 0..1) {
+                        result.error("INVALID_ARGUMENT", "心跳开关仅支持 0 或 1", null)
+                    } else {
+                        PNote.setHeartbeatDataState(state)
+                        result.success(null)
+                    }
+                }
+                "sendBackHeartbeatData" -> {
+                    PNote.sendBackHeartbeatData()
+                    result.success(null)
                 }
 
                 /// 获取 BK 版本号

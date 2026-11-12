@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 class DemoHomeTabs extends StatefulWidget {
   final Widget device;
+  final Widget testPage;
+  final Future<bool> Function()? onLeaveTest;
   final GlobalKey<ScaffoldState>? scaffoldKey;
   final PreferredSizeWidget? appBar;
   final Widget? endDrawer;
@@ -9,6 +11,8 @@ class DemoHomeTabs extends StatefulWidget {
   const DemoHomeTabs({
     super.key,
     required this.device,
+    this.testPage = const SizedBox.expand(),
+    this.onLeaveTest,
     this.scaffoldKey,
     this.appBar,
     this.endDrawer,
@@ -20,6 +24,28 @@ class DemoHomeTabs extends StatefulWidget {
 
 class _DemoHomeTabsState extends State<DemoHomeTabs> {
   int _index = 0;
+  final _tabBarKey = GlobalKey();
+  bool _switchPending = false;
+
+  Future<void> _selectTab(int index) async {
+    final controller = DefaultTabController.of(_tabBarKey.currentContext!);
+    if (_switchPending) {
+      controller.index = _index;
+      return;
+    }
+    if (_index == 1 && index == 0 && widget.onLeaveTest != null) {
+      controller.index = _index;
+      _switchPending = true;
+      try {
+        if (!await widget.onLeaveTest!()) return;
+      } finally {
+        _switchPending = false;
+      }
+    }
+    if (!mounted) return;
+    setState(() => _index = index);
+    controller.index = index;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -32,7 +58,7 @@ class _DemoHomeTabsState extends State<DemoHomeTabs> {
         endDrawerEnableOpenDragGesture: false,
         body: IndexedStack(
           index: _index,
-          children: [widget.device, const SizedBox.expand()],
+          children: [widget.device, widget.testPage],
         ),
         bottomNavigationBar: DecoratedBox(
           decoration: const BoxDecoration(
@@ -57,7 +83,8 @@ class _DemoHomeTabsState extends State<DemoHomeTabs> {
                 borderRadius: BorderRadius.circular(16),
               ),
               child: TabBar(
-                onTap: (index) => setState(() => _index = index),
+                key: _tabBarKey,
+                onTap: _selectTab,
                 dividerColor: Colors.transparent,
                 indicatorSize: TabBarIndicatorSize.tab,
                 indicator: BoxDecoration(

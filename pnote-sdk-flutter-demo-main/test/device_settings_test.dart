@@ -98,6 +98,126 @@ void main() {
     }
   });
 
+  test(
+    'heartbeat events reply and report the device settings results',
+    () async {
+      const events = MethodChannel('com.soni.soni_sdk_demo/eventChannel');
+      messenger.setMockMethodCallHandler(events, (_) async => null);
+      final provider = RecordPenProvider();
+      final received = <Map<String, dynamic>>[];
+      final subscription = provider.streamController.stream.listen(
+        received.add,
+      );
+
+      Future<void> emit(Object cmd, Map<String, dynamic> data) async {
+        await messenger.handlePlatformMessage(
+          events.name,
+          const StandardMethodCodec().encodeSuccessEnvelope(
+            jsonEncode({'cmd': cmd, 'state': '0', 'data': data}),
+          ),
+          (_) {},
+        );
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      try {
+        await provider.init();
+        await Future<void>.delayed(Duration.zero);
+        calls.clear();
+
+        await emit('101', {});
+        expect(calls.map((call) => call.method), ['sendBackHeartbeatData']);
+        provider.heartbeatReplyEnabled = false;
+        await emit(101, {});
+
+        await emit('100', {'offline_transfer_interval_state': '0'});
+        await emit(100, {'offline_transfer_interval_state': '1'});
+        expect(provider.deviceHeartbeatEnabled, isTrue);
+        await provider.setHeartbeatDataState(true);
+        expect(provider.isHeartbeatSettingPending, isTrue);
+        expect(provider.deviceHeartbeatEnabled, isTrue);
+        await emit('102', {'heartbeat_state': '00'});
+        expect(provider.isHeartbeatSettingPending, isFalse);
+        expect(provider.deviceHeartbeatEnabled, isTrue);
+        await provider.setHeartbeatDataState(false);
+        expect(provider.deviceHeartbeatEnabled, isTrue);
+        await emit(102, {'heartbeat_state': '01'});
+        expect(provider.isHeartbeatSettingPending, isFalse);
+        expect(provider.deviceHeartbeatEnabled, isFalse);
+        expect(received.where((event) => !event.containsKey('cmd')), [
+          {'heartbeatLog': '收到设备心跳（0x32）'},
+          {'heartbeatLog': '已发送心跳回复（0x33）'},
+          {'heartbeatLog': '收到设备心跳（0x32），自动回复已关闭'},
+          {'设置传输间隔': '成功'},
+          {'设置传输间隔': '失败'},
+          {'heartbeatLog': '设置开启设备心跳（0x34）'},
+          {'heartbeatLog': '收到设备心跳开关应答（0x35），设备当前为开启'},
+          {'heartbeatLog': '设置关闭设备心跳（0x34）'},
+          {'heartbeatLog': '收到设备心跳开关应答（0x35），设备当前为关闭'},
+        ]);
+        expect(calls.map((call) => call.method), [
+          'sendBackHeartbeatData',
+          'setHeartbeatDataState',
+          'setHeartbeatDataState',
+        ]);
+        expect(calls.skip(1).map((call) => call.arguments), [
+          {'state': 1},
+          {'state': 0},
+        ]);
+
+        await provider.setHeartbeatDataState(true);
+        await emit(102, {'heartbeat_state': '01'});
+        expect(provider.deviceHeartbeatEnabled, isFalse);
+        expect(provider.isHeartbeatSettingPending, isFalse);
+        expect(received.last, {
+          'heartbeatLog': '收到设备心跳开关应答（0x35），设置失败，设备当前为关闭',
+        });
+        await emit(102, {'heartbeat_state': 0});
+        expect(provider.deviceHeartbeatEnabled, isTrue);
+        await provider.setHeartbeatDataState(false);
+        await emit(102, {'heartbeat_state': '02'});
+        expect(provider.deviceHeartbeatEnabled, isTrue);
+        expect(provider.isHeartbeatSettingPending, isFalse);
+
+        await emit(2, {'connect_state': '0', 'address': 'null'});
+        expect(provider.deviceHeartbeatEnabled, isTrue);
+      } finally {
+        await subscription.cancel();
+        binding.removeObserver(provider);
+        provider.dispose();
+        await provider.streamController.close();
+        messenger.setMockMethodCallHandler(events, null);
+      }
+    },
+  );
+
+  test('transfer interval passes valid SDK arguments', () async {
+    final provider = RecordPenProvider();
+    try {
+      await provider.setSendFileTimeInterval(13);
+      await provider.setSendFileTimeInterval(255);
+
+      for (final interval in [12, 256]) {
+        await expectLater(
+          provider.setSendFileTimeInterval(interval),
+          throwsFormatException,
+        );
+      }
+      expect(calls.map((call) => call.method), [
+        'sendFileTimeInterval',
+        'sendFileTimeInterval',
+      ]);
+      expect(calls.map((call) => call.arguments), [
+        {'interval': 13},
+        {'interval': 255},
+      ]);
+    } finally {
+      binding.removeObserver(provider);
+      provider.dispose();
+      await provider.streamController.close();
+    }
+  });
+
   test('AuthKey changes pass the original hex string to the SDK', () async {
     final bytes = List.generate(32, (index) => index * 8);
     final hex = bytes

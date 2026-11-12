@@ -59,6 +59,13 @@
 ///同步时间
 -(void)syncTime;
 
+/// 设置离线文件传输间隔，单位为毫秒。
+-(void)sendFileTimeInterval:(uint8_t)interval;
+/// 收到 cmd=101 后回复设备心跳。
+-(void)sendBackHeartbeatData;
+/// 0 关闭，1 开启。其他值抛出 NSInvalidArgumentException。
+-(void)setHeartbeatDataState:(int)state;
+
 ///获取SN
 -(void)getSn;
 

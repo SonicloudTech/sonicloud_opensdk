@@ -1,6 +1,6 @@
 # SDK开发文档
 
-接口说明更新：2026-10-26。本次补充 L09 带参数启动录音接口、麦克风选项及调用示例。
+接口说明更新：2026-11-11。本次补充杰理设备心跳接口与回调、离线文件传输间隔设置，以及 AuthKey 修改与解绑说明。
 
 ## 一、集成SDK
 
@@ -97,9 +97,9 @@ iOS SDK 对无效参数不发送认证指令，因此不能等待这类输入产
 
 结果通过 `deviceDataEvent:(NSString *)data` 异步返回：
 
-| 方法 | cmd | data 字段 | 功能 |
-| --- | --- | --- | --- |
-| authkeyConnect | 31 | authkey_state | 使用设备当前 AuthKey 认证 |
+| 方法             | cmd | data 字段       | 功能                |
+| -------------- | --- | ------------- | ----------------- |
+| authkeyConnect | 31  | authkey_state | 使用设备当前 AuthKey 认证 |
 
 认证结果格式示例：
 
@@ -124,6 +124,29 @@ NSString *authkey = @"00112233445566778899aabbccddeeff00112233445566778899aabbcc
 ```
 
 认证使用设备当前 AuthKey，调用 `authkeyConnect` 后需等待设备回调（`cmd=31`）并确认认证成功，再执行需要认证的操作。
+
+#### 修改 AuthKey 与解绑
+
+以下接口用于支持 AuthKey 的设备，在蓝牙连接并完成当前 AuthKey 认证后调用：
+
+```objective-c
+/// 修改为新的 AuthKey，参数格式及无效参数处理同 authkeyConnect:
+-(void)resetAuthkey:(NSString *)authkey;
+
+/// 解除绑定并恢复出厂默认 AuthKey
+-(void)unbondAuthkey;
+```
+
+结果通过 `deviceDataEvent:(NSString *)data` 异步返回：
+
+| 方法 | cmd | data 字段 | 功能 |
+| --- | --- | --- | --- |
+| resetAuthkey: | 32 | authkey_state | 修改设备 AuthKey |
+| unbondAuthkey | 33 | authkey_state | 解绑并恢复出厂默认 AuthKey |
+
+回调结构与 `cmd=31` 相同，仅 `cmd` 不同。`authkey_state` 为设备返回的操作结果 Code，以十进制字符串上报，具体含义以设备固件协议为准；不能仅凭顶层 `state=0` 判断修改或解绑成功。
+
+确认修改成功后，后续认证使用新 AuthKey；确认解绑成功后，后续认证使用设备出厂默认 AuthKey。
 
 #### 设备名称设置与复位
 
@@ -243,24 +266,24 @@ Demo 的“重置”按钮通过 Flutter `resetDevice()` 调用原生 `resetDevi
     
     /// L09 启动录音并选择麦克风
     -(void)startRecord:(NSInteger)boneMic;
-
+    
     参数 boneMic：
     0：关闭骨麦，开启数字麦。
     1：开启骨麦，关闭数字麦。
     其他值无效，不发送录音指令。
-
+    
     调用示例（Objective-C）：
     [[PNode Shared] startRecord:0]; // 使用数字麦开始录音
     [[PNode Shared] startRecord:1]; // 使用骨麦开始录音，与上一行二选一调用
-
+    
     调用示例（Swift）：
     PNode.shared().startRecord(0) // 使用数字麦开始录音
     PNode.shared().startRecord(1) // 使用骨麦开始录音，与上一行二选一调用
-
+    
     Demo 在“开始录音”按钮后提供“L09录音”按钮，点击弹出麦克风选项。
     选择“数字麦（关闭骨麦）”传入 0，选择“骨麦（关闭数字麦）”传入 1，选中后开始录音；取消不发送指令。
     原无参数 startRecord 接口保留；带参数接口的录音状态和实时音频回调沿用下方说明。
-
+    
     /// 暂停录音
     -(void)pauseRecord;
     
@@ -407,6 +430,32 @@ Demo 的“重置”按钮通过 Flutter `resetDevice()` 调用原生 `resetDevi
     cmd    标记：14
     state    标记：0 表示正常，非0表示异常
     delete_state    0：成功； 1：失败；
+
+#### 设置离线文件传输间隔
+
+```objective-c
+/// 设置离线文件传输间隔，单位：毫秒
+-(void)sendFileTimeInterval:(uint8_t)interval;
+
+// 示例：设置为 20 毫秒
+[[PNode Shared] sendFileTimeInterval:20];
+```
+
+在蓝牙连接后调用，用于调整设备发送离线文件数据的间隔。Demo 限制输入为 `13–255` 毫秒；直接集成 SDK 时也应先在 App 侧校验范围，再转换为 `uint8_t` / Swift `UInt8`，避免超范围转换。
+
+结果通过 `deviceDataEvent:(NSString *)data` 异步返回：
+
+```json
+{
+  "cmd": "100",
+  "state": "0",
+  "data": {
+    "offline_transfer_interval_state": "0"
+  }
+}
+```
+
+`offline_transfer_interval_state`：`0` 表示设置成功，`1` 表示设置失败。方法返回仅表示调用已完成，需等待设备回调确认设置结果。
 
 ### 4、WIFI操作管理
 
@@ -594,7 +643,7 @@ Demo 的“重置”按钮通过 Flutter `resetDevice()` 调用原生 `resetDevi
     名称    描述
     cmd    标记：19
     state    标记：0 表示正常，非0表示异常
-    prepareState    返回状态，0表示已经进入升级状态，
+    prepareState    返回状态，0 和 3 表示可以进入升级状态，
     1 表示不能进入升级状态，主要原因是可能是SD卡或者内存不足；
     2 表示WiFi的TCP/IP未连接，升级模式需要在WiFi连接的状态下才能进行升级；
     
@@ -653,7 +702,7 @@ Demo 的“重置”按钮通过 Flutter `resetDevice()` 调用原生 `resetDevi
     接收设备回复码
     回复 1 → 提示 “不能进入升级状态（SD 卡 / 内存不足）” → 流程结束
     回复 2 → 提示 “WiFi 的 TCP/IP 未连接，需确保 WiFi 连接” → 流程结束
-    回复 0 → 设备正常进入升级模式，进入下一步
+    回复 0 或 3 → 设备正常进入升级模式，进入下一步
     APP 通过sendotaFile函数一次性传输升级数据给 SDK
     监控升级过程中 WiFi / 蓝牙连接状态
     连接断开 → 设备退出升级模式 → 流程结束
@@ -686,16 +735,16 @@ Demo 的“重置”按钮通过 Flutter `resetDevice()` 调用原生 `resetDevi
     名称    描述
     cmd    标记：41
     state    标记：0 表示正常，非0表示异常
-
+    
     "log":原始蓝牙数据
-
+    
     BK OTA升级说明：
     APP需要提供设备可访问的HTTP或HTTPS固件下载地址，并在HTTP响应头中返回文件长度Content-Length；
     调用setBK_UPGRADEHD时传入未对完整地址进行URIEncode的URL；如果文件名包含特殊字符，仅对URL路径中的文件名进行编码；
     调用getBKHDVersion获取当前BK固件版本号；
     对比版本后调用setBK_UPGRADEHD下发升级地址；
     通过cmd 40依次处理升级URL设置结果、下载进度和文件校验结果；
-
+    
     部分 BK OTA相关结果在onDeviceDataEvent接口返回，格式：
     {
       "cmd":"41",
@@ -710,7 +759,7 @@ Demo 的“重置”按钮通过 Flutter `resetDevice()` 调用原生 `resetDevi
     名称    描述
     cmd    标记：41
     state    标记：0 表示正常，非0表示异常
-
+    
     type    
     01    返回BK固件版本号 
     08    返回升级URL设置结果，0：成功；1：失败
@@ -718,6 +767,82 @@ Demo 的“重置”按钮通过 Flutter `resetDevice()` 调用原生 `resetDevi
     0A    返回固件文件校验结果，0：成功；1：失败
 
 ### 6、其它
+
+#### 杰理设备心跳
+
+以下接口用于支持心跳协议的杰理设备，调用前需保持蓝牙连接。
+
+```objective-c
+/// 设置设备是否发送心跳：0 关闭，1 开启
+-(void)setHeartbeatDataState:(int)state;
+
+/// 收到 cmd=101 后回复设备心跳
+-(void)sendBackHeartbeatData;
+```
+
+`setHeartbeatDataState:` 仅接受 `0` 或 `1`，其他值抛出 `NSInvalidArgumentException`，不发送指令。
+
+| 交互 | 协议指令 | SDK 回调 cmd | 说明 |
+| --- | --- | --- | --- |
+| 设备发送心跳 | 0x32 | 101 | App 收到后调用 sendBackHeartbeatData 回复 |
+| App 回复心跳 | 0x33 | — | 回复当前心跳，无需等待 cmd=102 |
+| App 设置心跳开关 | 0x34 | — | 调用 setHeartbeatDataState: 下发设置 |
+| 设备回复心跳开关 | 0x35 | 102 | 确认设备心跳开关状态 |
+
+心跳通过 `deviceDataEvent:(NSString *)data` 返回：
+
+```json
+{
+  "cmd": "101",
+  "state": "0",
+  "data": {}
+}
+```
+
+在 `WindBleDelegate` 中处理心跳的示例：
+
+```objective-c
+- (void)deviceDataEvent:(NSString *)data {
+    NSData *jsonData = [data dataUsingEncoding:NSUTF8StringEncoding];
+    if (!jsonData) return;
+    id event = [NSJSONSerialization JSONObjectWithData:jsonData options:0 error:nil];
+    if (![event isKindOfClass:[NSDictionary class]]) return;
+    if ([[event[@"cmd"] description] isEqualToString:@"101"]
+            && [[event[@"state"] description] isEqualToString:@"0"]) {
+        [[PNode Shared] sendBackHeartbeatData];
+    }
+    // 其他 cmd 在此继续分发处理。
+}
+```
+
+App 需自行接入心跳回复逻辑；Demo 在 Flutter 的 `RecordPenProvider` 收到 `cmd=101` 后按“自动回复”开关调用回复接口，默认开启自动回复。
+
+开关设置示例（按需二选一调用）：
+
+```objective-c
+[[PNode Shared] setHeartbeatDataState:1]; // 开启设备心跳
+[[PNode Shared] setHeartbeatDataState:0]; // 关闭设备心跳
+```
+
+设备通过 `cmd=102` 返回开关状态，例如开启后的回调：
+
+```json
+{
+  "cmd": "102",
+  "state": "0",
+  "data": {
+    "heartbeat_state": "00"
+  }
+}
+```
+
+`heartbeat_state` 为设备当前状态：`"00"` 表示开启，`"01"` 表示关闭。注意它与调用参数的含义不同：传入 `1` 开启，对应回调 `"00"`；传入 `0` 关闭，对应回调 `"01"`。顶层 `state` 表示回调状态，需结合 `heartbeat_state` 确认实际开关状态。
+
+部分回调的 `data` 可能为空对象，App 应兼容字段缺失；此时不能从回调读取设备当前开关值。Demo 会使用当前待确认的设置值，并在 5 秒内未收到应答时显示超时。此超时是 Demo 的等待策略。
+
+Demo 的“设备发送”和“自动回复”分别控制设备心跳开关、App 是否回复心跳；关闭自动回复不会向设备下发关闭心跳指令。连接状态变化时 Demo 将“设备发送”的界面状态重置为开启，该界面初值不代表新收到设备状态回调。
+
+#### 设备信息与设置
 
     ///同步时间, 连接上设备后，需要先调用此方法把app时间同步给录音笔设备
     -(void)syncTime;

@@ -30,6 +30,15 @@
         android:icon="@mipmap/ic_launcher"
         tools:replace="android:label"
         android:usesCleartextTraffic="true">
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.shared_files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/share_paths" />
+        </provider>
         <activity
             android:name="com.wind.pnote.ui.WelcomeActivity"
             tools:node="remove" />

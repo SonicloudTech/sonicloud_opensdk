@@ -71,6 +71,30 @@ void main() {
     });
   }
 
+  connectionTest('iOS empty address uses the selected device among equal names', (
+    tester,
+    provider,
+  ) async {
+    for (final address in ['device-a', 'device-b']) {
+      await emit(tester, {
+        'cmd': 1,
+        'state': 0,
+        'data': {'name': 'CB08', 'address': address, 'productType': 48},
+      });
+    }
+    await provider.connect(provider.discoveredDevices.last);
+    await emit(tester, {
+      'cmd': 2,
+      'data': {'connect_state': '1', 'name': 'CB08', 'address': ''},
+    });
+    expect(provider.deviceInfo?['address'], 'device-b');
+    expect(provider.deviceType, 48);
+    await loadFiles(tester, provider);
+    await emit(tester, connection('device-b'));
+    expect(provider.recordFileNames, ['a.opus', 'b.opus']);
+    expect(provider.transFileName, 'b.opus');
+  });
+
   connectionTest('same-device success preserves files and selection', (
     tester,
     provider,

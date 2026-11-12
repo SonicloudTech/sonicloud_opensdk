@@ -46,9 +46,9 @@ void main() {
     });
   }
 
-  for (final zero in ['0', 0]) {
+  for (final prepareState in ['0', 0, '3', 3]) {
     otaTest(
-      'OTA waits for device approval before sending (${zero.runtimeType})',
+      'OTA waits for approval $prepareState (${prepareState.runtimeType})',
       (provider) async {
         final upgrade = provider.requestAndSendOtaFile(firmwarePath);
         await Future<void>.delayed(Duration.zero);
@@ -63,11 +63,16 @@ void main() {
 
         final approval = {
           'cmd': 19,
-          'state': zero,
-          'data': {'prepareState': zero},
+          'state': prepareState is String ? '0' : 0,
+          'data': {'prepareState': prepareState},
         };
+        final approvalStatus = provider.streamController.stream.firstWhere(
+          (event) => event.containsKey('是否可以升级'),
+        );
+        final upgradeCompleted = expectLater(upgrade, completes);
         await emit(approval);
-        await upgrade;
+        await upgradeCompleted;
+        expect(await approvalStatus, {'是否可以升级': '可以'});
         await emit(approval);
         expect(calls.map((call) => call.method), [
           'requestDeviceGotoOtaMode',
@@ -158,5 +163,59 @@ void main() {
       'data': {'prepareState': '0'},
     });
     expect(calls.map((call) => call.method), ['requestDeviceGotoOtaMode']);
+  });
+
+  otaTest('cancelling OTA ignores late approval and allows the next request', (
+    provider,
+  ) async {
+    final cancelled = expectLater(
+      provider.requestAndSendOtaFile(firmwarePath),
+      throwsStateError,
+    );
+    await Future<void>.delayed(Duration.zero);
+    await provider.cancelOtaTransfer();
+    await cancelled;
+    final approval = {'cmd': 19, 'state': 0, 'data': {'prepareState': 3}};
+    await emit(approval);
+    expect(calls.where((call) => call.method == 'sendOtaFile'), isEmpty);
+    final next = provider.requestAndSendOtaFile(firmwarePath);
+    await emit(approval);
+    await next;
+    expect(calls.where((call) => call.method == 'sendOtaFile'), hasLength(1));
+  });
+
+  otaTest('overlapping OTA requests cannot use the same approval', (
+    provider,
+  ) async {
+    final manual = provider.requestAndSendOtaFile(firmwarePath);
+    await expectLater(
+      provider.requestAndSendOtaFile(firmwarePath),
+      throwsStateError,
+    );
+    await emit({
+      'cmd': 19,
+      'state': 0,
+      'data': {'prepareState': 3},
+    });
+    await manual;
+    await expectLater(
+      provider.requestAndSendOtaFile(firmwarePath),
+      throwsStateError,
+    );
+
+    await emit({
+      'cmd': 21,
+      'state': 0,
+      'data': {'receiveState': 0},
+    });
+    final retry = provider.requestAndSendOtaFile(firmwarePath);
+    await emit({'cmd': 19, 'state': 0, 'data': {'prepareState': 3}});
+    await retry;
+    expect(calls.map((call) => call.method), [
+      'requestDeviceGotoOtaMode',
+      'sendOtaFile',
+      'requestDeviceGotoOtaMode',
+      'sendOtaFile',
+    ]);
   });
 }

@@ -122,7 +122,22 @@ class _AudioRateStats {
   String get summary => '当前 $currentLabel，最低 $minLabel，最高 $maxLabel';
 }
 
+class OtaPreparationError extends StateError {
+  OtaPreparationError(this.prepareState, String message) : super(message);
+
+  final String? prepareState;
+}
+
 class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
+  static const _allowedOtaPrepareStates = {'0', '3'};
+  static const otaResultTimeout = Duration(minutes: 5);
+  static const _otaVerificationTimeout = Duration(seconds: 20);
+  static const otaTransferErrorKey = 'otaTransferError';
+  bool _otaRequestPending = false;
+  Completer<Never>? _otaRequestCancellation;
+  Timer? _otaTransferTimer;
+  bool _otaAwaitingVerification = false;
+
   // 🔧 服务实例（抱歐）
   final _bluetoothService = RecordPenBluetoothService();
   final _recordService = RecordPenRecordService();
@@ -191,9 +206,27 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   bool _isConnected = false;
   String? _connectedDeviceKey;
+  bool _heartbeatReplyEnabled = true;
+  bool _deviceHeartbeatEnabled = true;
+  ({bool enabled, Timer timeout})? _heartbeatSetting;
+
+  bool get heartbeatReplyEnabled => _heartbeatReplyEnabled;
+
+  set heartbeatReplyEnabled(bool enabled) {
+    if (_heartbeatReplyEnabled == enabled) return;
+    _heartbeatReplyEnabled = enabled;
+    notifyListeners();
+  }
+
+  bool get deviceHeartbeatEnabled => _deviceHeartbeatEnabled;
+
+  bool get isHeartbeatSettingPending => _heartbeatSetting != null;
 
   //是否正在录音
   bool _isRecording = false;
+  bool _isFileTransferring = false;
+
+  bool get isFileTransferring => _isFileTransferring;
 
   //启动录音当时的时间
   int? _pendingRecordStartTimestamp;
@@ -273,6 +306,13 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
   }
 
+  @override
+  void dispose() {
+    _clearHeartbeatSetting();
+    _clearOtaTransfer();
+    super.dispose();
+  }
+
   ///  全局只初始化一次
   ///  确保有权限
   init() async {
@@ -337,6 +377,14 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   String audioAverageRateLabel(String audioType) =>
       _audioRateStats.putIfAbsent(audioType, _AudioRateStats.new).averageLabel;
+
+  ({double? minimum, double? maximum}) audioRateBounds(String audioType) {
+    final stats = _audioRateStats.putIfAbsent(audioType, _AudioRateStats.new);
+    return (minimum: stats._minBytesPerSecond, maximum: stats._maxBytesPerSecond);
+  }
+
+  int audioReceivedBytes(String audioType) =>
+      _audioRateStats.putIfAbsent(audioType, _AudioRateStats.new)._totalBytes;
 
   List<List<int>> _splitData(List<int> data) {
     final blockSize = 40;
@@ -447,22 +495,25 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
           _handleDeviceWiFiCode(map);
           break;
         case "19":
-          //返回状态，0表示已经进入升级状态，
+          //返回状态，0 和 3 表示可以进入升级状态，
           //     1 表示不能进入升级状态，主要原因是可能是SD卡或者内存不足；
           //     2 表示WiFi的TCP/IP未连接，升级模式需要在WiFi连接的状态下才能进行升级；
           final otaData = map['data'];
-          final canUpgrade = map['state']?.toString() == '0' &&
+          final canUpgrade =
+              map['state']?.toString() == '0' &&
               otaData is Map &&
-              otaData['prepareState']?.toString() == '0';
+              _allowedOtaPrepareStates.contains(
+                otaData['prepareState']?.toString(),
+              );
           streamController.add({"是否可以升级": canUpgrade ? "可以" : "不可以"});
           break;
         case "20":
-        //state    标记：0 表示正常，非0表示异常
-        //     progress    当前进度字节；
-        //     total    总字节数
+          _handleOtaProgress(map);
+          break;
         case "21":
           //state    标记：0 表示正常，非0表示异常
           //     receiveState  0：文件接收完成，准备重启
+          _clearOtaTransfer();
           break;
         case "22":
           //state    标记：0 表示正常，非0表示异常
@@ -490,7 +541,16 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
         case "30":
         case "35":
         case "40":
+        case "100":
+        case "102":
           _handleAdditionalCommandEvent(cmd, map);
+          break;
+        case "101":
+          final shouldReply = heartbeatReplyEnabled;
+          _logHeartbeat(
+            shouldReply ? '收到设备心跳（0x32）' : '收到设备心跳（0x32），自动回复已关闭',
+          );
+          if (shouldReply) await sendBackHeartbeatData();
           break;
         default:
           Log.w("未知的 cmd: $cmd");
@@ -555,6 +615,38 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
         streamController.add({
           "BK OTA": "${data['type']?.toString() ?? ""} - ${data['value']?.toString() ?? ""}"
         });
+        break;
+      case "100":
+        streamController.add({
+          '设置传输间隔': _commandResultText(data['offline_transfer_interval_state']),
+        });
+        break;
+      case "102":
+        const reply = '收到设备心跳开关应答（0x35）';
+        final requested = _heartbeatSetting?.enabled;
+        final hasReportedState = data.containsKey('heartbeat_state');
+        final state = data['heartbeat_state']?.toString();
+        final enabled = hasReportedState
+            ? switch (int.tryParse(state ?? '', radix: 10)) {
+                0 => true,
+                1 => false,
+                _ => null,
+              }
+            : requested;
+        if (map['state']?.toString() != '0') {
+          _logHeartbeat('$reply，设置失败');
+        } else if (enabled != null) {
+          _deviceHeartbeatEnabled = enabled;
+          final actual = enabled ? '开启' : '关闭';
+          final mismatch = requested != null && requested != enabled;
+          _logHeartbeat('$reply，${mismatch ? '设置失败，' : ''}设备当前为$actual');
+        } else if (hasReportedState) {
+          _logHeartbeat('$reply，状态异常（heartbeat_state=$state）');
+        } else {
+          _logHeartbeat(reply);
+        }
+        _clearHeartbeatSetting();
+        notifyListeners();
         break;
     }
   }
@@ -631,10 +723,27 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> _handleDeviceConnectionEvent(Map<String, dynamic> map) async {
     //安卓是true,false,ios 是 1，0
     final connectState = map['data']['connect_state']?.toString();
+    if (connectState == '0' || connectState == 'false') {
+      _isFileTransferring = false;
+    }
     if (connectState == "true" || connectState == "1") {
       String? deviceName = map['data']["name"]?.toString();
       if (deviceName != null && !deviceName.contains("null")) {
-        final address = map['data']['address']?.toString().trim();
+        var address = map['data']['address']?.toString().trim();
+        if (address == null || address.isEmpty || address == 'null') {
+          final selectedAddress = deviceMap?['name'] == deviceName
+              ? (deviceMap?['address']?.toString().trim())
+              : null;
+          final matches = _discoveredDevices
+              .where((device) => device['name'] == deviceName)
+              .toList();
+          if (selectedAddress != null &&
+              selectedAddress.isNotEmpty && selectedAddress != 'null') {
+            address = selectedAddress;
+          } else {
+            address = matches.length == 1 ? matches.single['address'] : null;
+          }
+        }
         final deviceKey = address != null && address.isNotEmpty && address != 'null'
             ? 'address:${address.toLowerCase()}'
             : 'name:$deviceName';
@@ -650,23 +759,32 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
         final savedDevice = saved ? deviceMap : null;
         final previous = _connectedDeviceKey == deviceKey ? _deviceInfo : null;
         final data = Map<String, dynamic>.from(map['data'] as Map);
+        // 连接回调的名称可能与扫描名称不同，外贸版暂按类型 40 处理。
+        final scannedName = scanned['name'] ?? savedDevice?['name']?.toString();
+        final isExportDevice =
+            deviceName.contains('外贸') || scannedName?.contains('外贸') == true;
         _deviceInfo = {
           ...?previous,
           ...?savedDevice,
           ...scanned,
           ...data,
-          'productType': data['productType'] ??
-              data['type'] ??
-              scanned['productType'] ??
-              savedDevice?['productType'] ??
-              savedDevice?['type'] ??
-              previous?['productType'],
+          'address': address,
+          'productType': isExportDevice
+              ? 40
+              : data['productType'] ??
+                    data['type'] ??
+                    scanned['productType'] ??
+                    savedDevice?['productType'] ??
+                    savedDevice?['type'] ??
+                    previous?['productType'],
         };
         // 同一连接的重复成功通知不重复初始化，也不清空文件列表。
         if (_isConnected && _connectedDeviceKey == deviceKey) {
           notifyListeners();
           return;
         }
+        _resetDeviceHeartbeat();
+        _isFileTransferring = false;
         _connectedDeviceKey = deviceKey;
         _isConnected = true;
 
@@ -687,6 +805,7 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
         // getRecordFileList();
       }
     } else if (map['data']['address'] == "null") {
+      _resetDeviceHeartbeat();
       _isConnected = false;
       _connectedDeviceKey = null;
       _deviceInfo = null;
@@ -737,7 +856,7 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
     if (isFinish) {
       if (_transFileName.isEmpty ||
           !_recordFiles.any((e) => e.name == _transFileName)) {
-        _transFileName = _recordFiles.isEmpty ? '' : _recordFiles.first.name;
+        _transFileName = _recordFiles.isEmpty ? '' : _recordFiles.last.name;
       }
       Log.d('📋 文件列表接收完成，共 ${_recordFiles.length} 个文件');
     }
@@ -759,6 +878,11 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> _handleTransferProgressEvent(Map<String, dynamic> map) async {
     /// 0完成，4传输中，1文件不在，2offset过大（预留），3其他停止
     final String fileState = map['data']['record_file_state'].toString();
+    if (const {'0', '1', '2', '3'}.contains(fileState) ||
+        (map['state'] != null && map['state']?.toString() != '0')) {
+      _isFileTransferring = false;
+      notifyListeners();
+    }
     switch (fileState) {
       case '0':
         await _handleTransferComplete(map['data']);
@@ -940,11 +1064,13 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
   /// 断开连接成功
   closeSuccess() async {
     Log.d("☹️断开了");
+    _resetDeviceHeartbeat();
     _isConnected = false;
     _connectedDeviceKey = null;
     _deviceInfo = null;
     _isRecording = false;
     _cbc = "-1";
+    _isFileTransferring = false;
     _sn = "00000000";
     _clearRecordFileList();
 
@@ -1045,7 +1171,15 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
   ) async {
     _transferPacketNumber = 0;
     resetAudioRate(AudioDataType.file);
-    await _recordService.sendFileFromPenToPhoneWithOffset(fileName, offset);
+    _isFileTransferring = true;
+    notifyListeners();
+    try {
+      await _recordService.sendFileFromPenToPhoneWithOffset(fileName, offset);
+    } catch (_) {
+      _isFileTransferring = false;
+      notifyListeners();
+      rethrow;
+    }
   }
 
   /// 停止传输文件
@@ -1272,11 +1406,63 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
     await _methodChannel.invokeMethod('requestDeviceGotoOtaMode');
   }
 
+  Future<void> cancelOtaTransfer() async {
+    final active = _otaRequestPending || _otaTransferTimer != null;
+    final cancellation = _otaRequestCancellation;
+    if (cancellation != null && !cancellation.isCompleted) {
+      cancellation.completeError(StateError('OTA 已中断'));
+    }
+    _clearOtaTransfer();
+    if (active && isConnected) await closeConnect();
+  }
+
+  void _clearOtaTransfer() {
+    _otaTransferTimer?.cancel();
+    _otaTransferTimer = null;
+    _otaAwaitingVerification = false;
+  }
+
+  void _startOtaTransferTimeout(Duration timeout, String message) {
+    _otaTransferTimer?.cancel();
+    _otaTransferTimer = Timer(timeout, () {
+      _clearOtaTransfer();
+      streamController.add({otaTransferErrorKey: message});
+    });
+  }
+
+  void _handleOtaProgress(Map<String, dynamic> event) {
+    if (event['state']?.toString() != '0') {
+      _clearOtaTransfer();
+      return;
+    }
+    if (_otaTransferTimer == null || _otaAwaitingVerification) return;
+    final data = event['data'];
+    if (data is! Map) return;
+    final progress = int.tryParse('${data['progress']}');
+    final total = int.tryParse('${data['total']}');
+    if (progress == null || total == null || total <= 0 || progress < total) {
+      return;
+    }
+
+    _otaAwaitingVerification = true;
+    _startOtaTransferTimeout(
+      _otaVerificationTimeout,
+      '文件验证超时（${_otaVerificationTimeout.inSeconds} 秒内未收到校验结果）',
+    );
+  }
+
   /// 收到设备进入升级模式的成功回复后，再发送固件。
   Future<void> requestAndSendOtaFile(
     String filePath, {
     Duration timeout = const Duration(seconds: 10),
+    bool Function()? canSend,
   }) async {
+    if (_otaRequestPending || _otaTransferTimer != null) {
+      throw StateError('OTA 正在进行，请等待当前操作结束');
+    }
+    _otaRequestPending = true;
+    final cancellation = Completer<Never>();
+    _otaRequestCancellation = cancellation;
     final prepared = Completer<Map<String, dynamic>>();
     // 先监听，避免遗漏请求调用期间立即到达的设备回复。
     final subscription = streamController.stream.listen((event) {
@@ -1285,10 +1471,13 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
       }
     });
     try {
-      final results = await Future.wait<dynamic>([
-        prepared.future,
-        requestDeviceGotoOtaMode(),
-      ], eagerError: true).timeout(
+      final results = await Future.any([
+        Future.wait<dynamic>([
+          prepared.future,
+          requestDeviceGotoOtaMode(),
+        ], eagerError: true),
+        cancellation.future,
+      ]).timeout(
         timeout,
         onTimeout: () => throw TimeoutException('请求升级超时，未发送固件', timeout),
       );
@@ -1298,16 +1487,27 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
       }
       final data = response['data'];
       final prepareState = data is Map ? data['prepareState']?.toString() : null;
-      if (prepareState != '0') {
+      if (!_allowedOtaPrepareStates.contains(prepareState)) {
         final reason = switch (prepareState) {
           '1' => '不能进入升级状态，请检查 SD 卡或内存空间',
           '2' => 'WiFi 的 TCP/IP 未连接，请先连接设备 WiFi',
           _ => '未知升级准备状态：$prepareState',
         };
-        throw StateError(reason);
+        throw OtaPreparationError(prepareState, reason);
       }
-      await sendOtaFile(filePath);
+      if (canSend?.call() == false) {
+        throw StateError('设备连接已变化，取消发送固件');
+      }
+      _startOtaTransferTimeout(otaResultTimeout, '等待固件发送完成超时');
+      try {
+        await sendOtaFile(filePath);
+      } catch (_) {
+        _clearOtaTransfer();
+        rethrow;
+      }
     } finally {
+      _otaRequestPending = false;
+      _otaRequestCancellation = null;
       await subscription.cancel();
     }
   }
@@ -1377,9 +1577,63 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
     });
   }
 
-  /// sendFileTimeInterval
-  void setSendFileTimeInterval(int interval) {
-    _methodChannel.invokeMethod('sendFileTimeInterval', {'interval': interval});
+  /// 设置离线文件传输间隔（毫秒）。
+  Future<void> setSendFileTimeInterval(int interval) async {
+    if (interval < 13 || interval > 255) {
+      throw const FormatException('传输间隔须为 13–255 毫秒');
+    }
+    await _methodChannel.invokeMethod('sendFileTimeInterval', {
+      'interval': interval,
+    });
+  }
+
+  Future<void> setHeartbeatDataState(bool enabled) async {
+    if (isHeartbeatSettingPending) return;
+    final action = enabled ? '开启' : '关闭';
+    final timeout = Timer(const Duration(seconds: 5), () {
+      _clearHeartbeatSetting();
+      _logHeartbeat('设置$action设备心跳超时，未收到设备应答');
+      notifyListeners();
+    });
+    _heartbeatSetting = (enabled: enabled, timeout: timeout);
+    _logHeartbeat('设置$action设备心跳（0x34）');
+    notifyListeners();
+    try {
+      await _methodChannel.invokeMethod('setHeartbeatDataState', {
+        'state': enabled ? 1 : 0,
+      });
+    } catch (error) {
+      if (_heartbeatSetting?.timeout == timeout) {
+        _clearHeartbeatSetting();
+        _logHeartbeat('设置$action设备心跳发送失败 $error');
+        notifyListeners();
+      }
+      rethrow;
+    }
+  }
+
+  Future<void> sendBackHeartbeatData() async {
+    try {
+      await _methodChannel.invokeMethod('sendBackHeartbeatData');
+    } catch (error) {
+      _logHeartbeat('发送心跳回复失败 $error');
+      rethrow;
+    }
+    _logHeartbeat('已发送心跳回复（0x33）');
+  }
+
+  void _logHeartbeat(String message) {
+    streamController.add({'heartbeatLog': message});
+  }
+
+  void _clearHeartbeatSetting() {
+    _heartbeatSetting?.timeout.cancel();
+    _heartbeatSetting = null;
+  }
+
+  void _resetDeviceHeartbeat() {
+    _clearHeartbeatSetting();
+    _deviceHeartbeatEnabled = true;
   }
 
   /// 获取 BK 版本号

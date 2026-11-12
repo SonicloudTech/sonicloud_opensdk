@@ -42,8 +42,8 @@
 ├── ios
 │   └── Runner/...                                  # iOS 原生通道实现
 ├── assets                           # 资源与 OTA 固件（示例）
-├── android SDK开发文档(最新版本)-2026.04.23.md
-└── iOS SDK开发文档(最新版本)-2026.04.23.md
+├── android SDK开发文档.md
+└── iOS SDK开发文档.md
 ```
 
 ## 环境要求
@@ -105,7 +105,7 @@ flutter build ios --config-only --no-codesign
 - 原生桥接：
   - Android：`android/app/src/main/kotlin/com/soni/soni_sdk_demo/MainActivity.kt`
   - iOS：`ios/Runner` 下对应通道实现
-- SDK 协议与命令说明请参考根目录两份平台 SDK 文档。
+- SDK 协议与命令说明请参考根目录的 [Android SDK 开发文档](<android SDK开发文档.md>) 和 [iOS SDK 开发文档](<iOS SDK开发文档.md>)。两份文档已补充杰理设备心跳接口与回调、离线文件传输间隔设置，以及 AuthKey 修改与解绑说明。
 
 ## Wi-Fi 状态码说明
 
