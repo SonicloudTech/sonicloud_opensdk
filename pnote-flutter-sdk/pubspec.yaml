@@ -1,0 +1,17 @@
+name: pnote_flutter_sdk
+description: "声云录音笔 BLE 插件 lite 精简版：纯 Dart 实现（基于 flutter_blue_plus），提供扫描连接、录音控制、文件下载续传与 App JSON 兼容层。"
+version: 0.2.0
+
+environment:
+  sdk: ^3.9.0
+  flutter: '>=3.3.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_blue_plus: ^1.32.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
