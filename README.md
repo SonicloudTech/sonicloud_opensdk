@@ -105,12 +105,13 @@ Before integrating, read the [SDK integration guide](SDK%20%E9%9B%86%E6%88%90%E5
 
 ### Flutter
 
-**Pure-Dart plugin (recommended)** — `pnote-flutter-sdk/` implements the full BLE protocol in Dart on top of `flutter_blue_plus`, with no native SDK dependency. Install from the standalone repository:
+**Pure-Dart plugin (recommended)** — `pnote-flutter-sdk/` implements the full BLE protocol in Dart on top of `flutter_blue_plus`, with no native SDK dependency. Add it directly from this repository:
 
 ```yaml
 pnote_flutter_sdk:
   git:
-    url: https://github.com/chenqiangchenqiang/pnote-flutter-sdk.git
+    url: https://github.com/SonicloudTech/sonicloud_opensdk.git
+    path: pnote-flutter-sdk
 ```
 
 It covers scan/connect, device info, recording control, the realtime opus stream (`recordDataStream`), file list/download/delete, and an iOS-parity AppJson compatibility layer. See [README.en.md](pnote-flutter-sdk/README.en.md) for the full API reference and protocol cmd tables.
