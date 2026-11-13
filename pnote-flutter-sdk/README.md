@@ -23,9 +23,8 @@
 dependencies:
   pnote_flutter_sdk:
     git:
-      # 国内克隆慢时可换 Gitee，二选一
-      url: https://github.com/chenqiangchenqiang/pnote-flutter-sdk.git
-      # url: https://gitee.com/chenqiangchenqiang/pnote-flutter-sdk.git
+      url: https://github.com/SonicloudTech/sonicloud_opensdk.git
+      path: pnote-flutter-sdk
 ```
 
 ### 2. 配置权限

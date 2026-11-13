@@ -23,9 +23,8 @@ BLE Flutter plugin for the Shengyun voice recorder pen — **lite edition**. Pur
 dependencies:
   pnote_flutter_sdk:
     git:
-      # Use Gitee instead if cloning from GitHub is slow — pick one
-      url: https://github.com/chenqiangchenqiang/pnote-flutter-sdk.git
-      # url: https://gitee.com/chenqiangchenqiang/pnote-flutter-sdk.git
+      url: https://github.com/SonicloudTech/sonicloud_opensdk.git
+      path: pnote-flutter-sdk
 ```
 
 ### 2. Configure permissions
