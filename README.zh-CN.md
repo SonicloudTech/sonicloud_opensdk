@@ -104,12 +104,13 @@ python -m unittest discover tests -v
 
 ### Flutter 联调工程
 
-**纯 Dart 插件（推荐）**——`pnote-flutter-sdk/` 基于 flutter_blue_plus 用纯 Dart 实现完整 BLE 协议，不依赖任何原生 SDK。经独立仓库引入：
+**纯 Dart 插件（推荐）**——`pnote-flutter-sdk/` 基于 flutter_blue_plus 用纯 Dart 实现完整 BLE 协议，不依赖任何原生 SDK。直接从本仓库引入：
 
 ```yaml
 pnote_flutter_sdk:
   git:
-    url: https://gitee.com/chenqiangchenqiang/pnote-flutter-sdk.git
+    url: https://github.com/SonicloudTech/sonicloud_opensdk.git
+    path: pnote-flutter-sdk
 ```
 
 覆盖扫描连接、设备信息、录音控制、实时 opus 音频流（`recordDataStream`）、文件列表/下载/删除，以及与 iOS 端对齐的 AppJson 兼容层。完整 API 与协议 cmd 说明见 [README](pnote-flutter-sdk/README.md)。
