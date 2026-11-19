@@ -1,103 +1,115 @@
 # PNote Demo App
 
-录音笔（蓝牙智能笔）配套演示 App。基于 [pnote_flutter_sdk](https://github.com/chenqiangchenqiang/pnote-flutter-sdk) 演示设备连接、录音控制、实时转写、文件管理与本地回放的完整链路。
+Demo app for the PNote Bluetooth voice-recorder pen. Built on [pnote_flutter_sdk](https://github.com/chenqiangchenqiang/pnote-flutter-sdk), it demonstrates the complete chain: device connection, recording control, live transcription with speaker separation, file management, local playback, and AI meeting-summary / mind-map generation.
 
-- 平台：Android / iOS（Flutter）
-- 语言：中文 / 英文（默认跟随系统，**非中文系统一律英文**）
-- 主题色：`#3D9AFF`（设计令牌见 `lib/design/tokens.dart`）
+> English | [中文](README.zh-CN.md)
 
-## 功能总览
+- Platforms: Android / iOS (Flutter)
+- Languages: Chinese / English (follows the system locale; **any non-Chinese system gets English**)
+- Theme color: `#3D9AFF` (design tokens in `lib/design/tokens.dart`)
+- Demo video: [Demonstration.mp4](Demonstration.mp4) · Prebuilt test APK: [demo-apk/](demo-apk) (debug-signed, for evaluation only — build your own for production)
 
-| 模块 | 能力 |
+## Features
+
+| Module | Capabilities |
 |---|---|
-| 设备连接 | BLE 扫描 / 连接 / 重连；权限与蓝牙状态引导；AppBar 右上角设备摘要（在线状态 + 名称 + 电量图形） |
-| 录音 | App 内录音控制（开始 / 暂停 / 继续 / 停止保存）；笔身物理按键全量镜像；录音全屏页自动弹出且录制中不可退出；实时计时 |
-| 实时转写 | 录音流 opus→PCM 切片上行 WebSocket（厦大线路）；临时句「正在说」高亮 + 定稿正文；断线重连退避；停录转写文本落盘 |
-| 本地录音 | 录音实时流同步落盘（与转写共用数据流）；断连保留半段可播；转写 txt 随音频保存 |
-| 音频回放 | 音频详情页（信息 + 播放控制 + 转写内容 + AI 生成占位）；播完自动归位 |
-| 设备文件 | 文件列表每次进入自动刷新；下载 / 删除（单个 / 全部，确认弹窗）；**下载支持暂停与断点续传**；迷你播放条 |
-| 近期录音 | 自录 + 设备下载统一汇总；超 5 条提供「更多」全量页；支持删除（含转写文本） |
+| Device connection | BLE scan / connect / reconnect; permission & Bluetooth-state guidance; device summary chip in the AppBar (online dot + name + battery graphic) |
+| Recording | In-app recording controls (start / pause / resume / stop & save); full mirroring of the pen's physical buttons; recording auto-opens a fullscreen page that cannot be exited while recording; live timer |
+| Live transcription | Opus→PCM audio chunks streamed to Sonicloud `talentStreamAsr` (`role=1` speaker separation); interim sentences highlighted + finalized text with two-line speaker labels; reconnect with backoff; transcript saved on stop |
+| Local recordings | Recording stream saved to disk in parallel with transcription (shared broadcast stream); partial file stays playable after disconnect; transcript `.txt` saved alongside |
+| Playback | Audio detail page (info + player + transcript/summary/mind-map tabs); resets to start when playback completes |
+| AI generation | One-tap meeting summary (Markdown) + interactive mind map from the transcript; fully automatic chain (mind map auto-fetched after the summary); auto-resumes polling when re-entering mid-generation; task_id & results cached to disk to prevent duplicate submissions and billing |
+| Device files | File list auto-refreshed on entry; download / delete (single / all, with confirmation); **download pause & resume**; mini player bar |
+| Recent recordings | App recordings + device downloads unified; "More" page beyond 5 entries; delete support (including transcripts) |
 
-完整 UI/交互说明见 [docs/app-features.md](docs/app-features.md)（已交付 UI 设计）。
+Full UI/interaction spec: [docs/app-features.md](docs/app-features.md).
 
-## 技术栈
+## Tech Stack
 
-- Flutter（项目经 FVM 管理，`3.47.7`；Dart SDK `^3.13.5`）
-- `pnote_flutter_sdk`：录音笔 BLE 协议封装（扫描 / 连接 / 录音指令 / 文件传输 / 设备信息）
-- `flutter_blue_plus`：BLE 传输层
-- `opus_codec` / `opus_codec_dart`：opus 解码 FFI（40B 定长帧 → PCM s16le/16k/单声道）
-- `web_socket_channel` + `crypto`：实时转写上行与 md5 token
-- `just_audio` + `audio_session`：本地回放
-- `path_provider`：本地存储定位
+- Flutter (managed with FVM, `3.47.7`; Dart SDK `^3.13.5`)
+- `pnote_flutter_sdk`: BLE protocol wrapper for the recorder pen (scan / connect / recording commands / file transfer / device info)
+- `flutter_blue_plus`: BLE transport
+- `opus_codec` / `opus_codec_dart`: opus decode FFI (40-byte fixed frames → PCM s16le/16k/mono)
+- `web_socket_channel` + `crypto`: transcription uplink and auth signing
+- `just_audio` + `audio_session`: local playback
+- `markdown_widget`: AI summary Markdown rendering
+- `flutter_mind_map`: interactive mind map (vendored local package `flutter_mind_map-1.0.1/`)
+- `path_provider`: local storage locations
 
-## 快速开始
+## Quick Start
 
 ```bash
 fvm flutter pub get
-fvm flutter run          # 需真机 + 已开机的录音笔
+fvm flutter run          # requires a physical device + a powered-on recorder pen
 ```
 
-> 模拟器无蓝牙，请使用真机调试。
+> Emulators have no Bluetooth — use a physical device.
 
-### 心云开放平台凭证配置
+### Sonicloud Open Platform credentials
 
-实时转写（ASR）与 AI 纪要依赖 [声云开放平台](https://open.sinicloud.com) 的鉴权。凭证统一配置在 [lib/asr/sinicloud_auth.dart](lib/asr/sinicloud_auth.dart) 顶部的三个常量：
+Live transcription (ASR) and AI summarization require [Sonicloud开放平台](https://open.sinicloud.com) authentication. Set the three constants at the top of [lib/asr/sinicloud_auth.dart](lib/asr/sinicloud_auth.dart):
 
 ```dart
-static const _appId = 'YOUR_APP_ID';       // 开放平台 AppID
-static const _apiKey = 'YOUR_API_KEY';     // 开放平台 API Key
-static const _apiSecret = 'YOUR_API_SECRET'; // 开放平台 API Secret
+static const _appId = 'YOUR_APP_ID';         // Open Platform AppID
+static const _apiKey = 'YOUR_API_KEY';       // Open Platform API Key
+static const _apiSecret = 'YOUR_API_SECRET'; // Open Platform API Secret
 ```
 
-公开仓库内置的是占位符，运行前请替换为你自己申请的凭证（开放平台控制台获取）。apiSecret 属于敏感信息，切勿提交真实值到公开仓库；正式产品应由自家后端中转签发 token。
+This public repository ships placeholders — replace them with your own credentials (from the platform console) before running. apiSecret is sensitive: never commit real values to a public repository; production apps should proxy token issuance through their own backend.
 
-### 所需权限（Android，已在 Manifest 声明）
+### Required Android permissions (declared in the Manifest)
 
-`BLUETOOTH_SCAN` / `BLUETOOTH_CONNECT`（Android 12+）、`BLUETOOTH` / `BLUETOOTH_ADMIN`（旧系统）、`ACCESS_FINE_LOCATION`（旧系统扫描定位）、`INTERNET`（转写）。
+`BLUETOOTH_SCAN` / `BLUETOOTH_CONNECT` (Android 12+), `BLUETOOTH` / `BLUETOOTH_ADMIN` (legacy), `ACCESS_FINE_LOCATION` (legacy scanning), `INTERNET` (transcription).
 
-App 内置权限引导：未授权 / 蓝牙未开时给出对应提示卡与「去系统设置」入口；**权限检查先于蓝牙状态检查**（Android 12+ 未授权时适配器状态恒为 unknown，先查蓝牙会误报）。
+The app includes permission guidance: prompt cards with an "open system settings" entry when permissions are missing or Bluetooth is off; **the permission check precedes the Bluetooth-state check** (on Android 12+ the adapter state is always `unknown` before permission is granted — checking Bluetooth first would misreport).
 
-## 目录结构
+## Project Layout
 
 ```
 lib/
-├── main.dart                  # 入口、AppBar 设备摘要、语言切换、Tab 框架
-├── session.dart               # 全局会话状态：扫描/连接/录音/转写分流/本地落盘/近期录音
-├── devices_page.dart          # 首页：扫描视图 + 已连接仪表盘 + 近期录音区
-├── device_detail_page.dart    # 设备信息页（电量/存储/固件/刷新/断连）
-├── recording_overlay_page.dart# 录音全屏页（自动弹出、不可退出）
-├── recordings_page.dart       # 设备文件页（下载/暂停续传/删除/迷你播放条）
-├── recent_recordings_page.dart# 近期录音全量页（删除）+ 共用条目组件
-├── audio_detail_page.dart     # 本地音频详情页（信息/播放/转写/AI 占位）
-├── transcript_flow.dart       # 实时转写文本流组件（首页已移除，全屏页使用）
-├── ble_permissions.dart       # 权限申请与引导
+├── main.dart                  # Entry, AppBar device summary, language switch, tab shell
+├── session.dart               # Global session state: scan/connect/record/transcript fan-out/local save/recent list
+├── devices_page.dart          # Home: scan view + connected dashboard + recent recordings
+├── device_detail_page.dart    # Device info page (battery/storage/firmware/refresh/disconnect)
+├── recording_overlay_page.dart# Fullscreen recording page (auto-opened, non-exitable)
+├── recordings_page.dart       # Device files (download/pause-resume/delete/mini player)
+├── recent_recordings_page.dart# All recent recordings page (delete) + shared item widget
+├── audio_detail_page.dart     # Audio detail (info/player/transcript·summary·mind-map tabs/AI)
+├── transcript_flow.dart       # Live transcript flow widget (two-line speaker display)
+├── ble_permissions.dart       # Permission requests & guidance
 ├── asr/
-│   └── pen_asr_service.dart   # 转写 WebSocket 服务（握手/心跳/重连/切片）
+│   ├── pen_asr_service.dart   # Transcription WebSocket service (Sonicloud line/reconnect/speaker routing)
+│   └── sinicloud_auth.dart    # Sonicloud Open Platform token fetch & cache
+├── ai/
+│   └── summary_service.dart   # AI summary/mind-map APIs (createAnalysis/polling/summary/mindmap)
 ├── audio/
-│   ├── recording_store.dart   # 本地存储（recordings/ 与 recordings/app/）+ opus→wav
-│   ├── opus_bootstrap.dart    # opus 解码器初始化/帧解码引导
-│   └── wav.dart               # WAV 封装
+│   ├── recording_store.dart   # Local storage (recordings/ and recordings/app/) + opus→wav
+│   ├── opus_bootstrap.dart    # Opus decoder init/frame-decode bootstrap
+│   └── wav.dart               # WAV container
+├── widgets/                   # Mind-map widgets (embedded/fullscreen/data model)
 ├── design/
-│   ├── tokens.dart            # 设计令牌（#3D9AFF 主色系）
-│   ├── status_badge.dart      # 状态徽标（圆点+文字）
-│   └── battery_level.dart     # 电量图形（按百分比填充）
-└── l10n/                      # arb + 生成代码（gen/）
+│   ├── tokens.dart            # Design tokens (#3D9AFF primary palette)
+│   ├── markdown_theme_config.dart # Summary Markdown theme mapping
+│   ├── status_badge.dart      # Status badge (dot + text)
+│   └── battery_level.dart     # Battery graphic (filled by percentage)
+└── l10n/                      # arb + generated code (gen/)
 ```
 
-## 核心机制速记
+## Implementation Notes
 
-- **音频流**：录音开始后设备持续下发 `AUDIO_DATA` opus 帧（固件约定 **40B/帧、20ms/帧**，即 2000B/s）；该流为 broadcast，转写与本地落盘并行订阅互不影响；时长可由字节数反推
-- **转写链路**：opus 帧解码为 PCM → 按 100ms（3200B）切片上行 `wss://asr.chatmin.cn:1444/dotcwsasr`（token = md5('TR'+userid+sid)）；`errCode=3` 为临时句、`0` 为定稿
-- **本地存储**：App 自录 → `recordings/app/REC_*.opus`（+ 同名 `.txt` 转写）；设备下载 → `recordings/` 根目录；播放前懒转 `.wav`
-- **断点续传**：下载暂停发协议 `cmd=7`，继续时 `startGetFile(name, offset: 已收字节)`，本地 append 接写；会话序号防旧会话迟到回包误删文件
-- **物理按键**：笔身开始(1)/停止(3)/暂停(5)/继续(7) 同步驱动 App 状态机（含录音全屏页自动弹出/返回）
+- **Audio stream**: once recording starts, the device continuously sends `AUDIO_DATA` opus frames (firmware convention: **40 B/frame, 20 ms/frame**, i.e. 2000 B/s); the stream is broadcast — transcription and local saving subscribe in parallel; duration can be derived from the byte count
+- **Transcription pipeline**: opus frames decoded to PCM → sliced into 100 ms (3200 B) chunks → uplinked to `wss://openapi.sinicloud.com/talentStreamAsr` (dual-header auth; `role=1` enables speaker separation); `errCode 1000` connected, `3` interim, `0 + End>0` finalized, `10` stream end
+- **AI summary pipeline**: transcript → `createAnalysis` → poll `analysisDetail` → `summary` (Markdown) → auto-fetch `mindmap`; `language` follows the system locale (zh/en); task_id & results cached to disk — no duplicate submission or billing on re-entry
+- **Local storage**: app recordings → `recordings/app/REC_*.opus` (+ matching `.txt` transcript); device downloads → `recordings/` root; lazy `.wav` conversion before playback
+- **Resumable download**: pause sends protocol `cmd=7`; resume calls `startGetFile(name, offset: receivedBytes)` and appends to the local file; an attempt token guards against stale session replies
+- **Physical buttons**: pen start(1)/stop(3)/pause(5)/resume(7) drive the app state machine (including auto open/close of the fullscreen recording page)
 
-## 国际化
+## Localization
 
-- 文案源：`lib/l10n/app_en.arb`（模板）/ `app_zh.arb`
-- 生成：`fvm flutter gen-l10n`（配置见 `l10n.yaml`）
-- 语言规则：系统 `zh*` → 中文，其余 → 英文；AppBar 菜单可手动锁定 English / 中文
+- Sources: `lib/l10n/app_en.arb` (template) / `app_zh.arb`
+- Generation: `fvm flutter gen-l10n` (see `l10n.yaml`)
+- Rule: system `zh*` → Chinese, everything else → English; the AppBar menu can lock English / 中文 manually
 
-## 相关仓库
+## Related Repositories
 
-- SDK：[pnote-flutter-sdk](https://github.com/chenqiangchenqiang/pnote-flutter-sdk)（协议实现与 API 文档见其 README / ARCHITECTURE.md）
+- SDK: [pnote-flutter-sdk](https://github.com/chenqiangchenqiang/pnote-flutter-sdk) (protocol implementation & API docs in its README / ARCHITECTURE.md)

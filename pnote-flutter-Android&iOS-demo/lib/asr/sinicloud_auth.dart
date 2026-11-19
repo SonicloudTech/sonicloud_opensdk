@@ -4,15 +4,13 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 
-/// 声云开放平台访问令牌（打开页面先获取，2 小时有效，自动提前刷新）。
+/// Sonicloud开放平台访问令牌（打开页面先获取，2 小时有效，自动提前刷新）。
 ///
 /// 作用对齐源项目的"登录 token"：
 /// 1. 作为实时转写的连接门槛（无 token 不连）；
 /// 2. 无用户体系时，userid = "sn" + token（源项目 `userInfo?.user?.id ?? token` 同款兜底）。
 ///
-/// ⚠️ 请先在下方填入你在声云开放平台申请的凭证（控制台获取），
-/// 未填或填错时实时转写/AI 纪要不可用。
-/// apiSecret 属于敏感信息，切勿提交真实值到公开仓库；
+/// ⚠️ apiSecret 硬编码在客户端可被逆向提取，demo 可接受；
 /// 正式产品应由自家后端中转签发。
 class SinicloudAuth {
   SinicloudAuth._();

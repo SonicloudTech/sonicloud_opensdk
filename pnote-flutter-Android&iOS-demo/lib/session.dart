@@ -93,7 +93,7 @@ class Session extends ChangeNotifier {
 
   final asr = PenAsrService.instance;
 
-  /// 声云开放平台访问令牌（启动即取，2h 有效自动缓存，供后续云端能力使用）。
+  /// Sonicloud开放平台访问令牌（启动即取，2h 有效自动缓存，供后续云端能力使用）。
   final auth = SinicloudAuth.instance;
 
   /// 转写开关（首页录音卡的 Switch；录音中切换立即生效）。
@@ -122,7 +122,7 @@ class Session extends ChangeNotifier {
     unawaited(_warmUpToken());
   }
 
-  /// 打开 App 先获取声云访问令牌（无网络等失败仅记录，不阻塞启动）。
+  /// 打开 App 先获取 Sonicloud 访问令牌（无网络等失败仅记录，不阻塞启动）。
   Future<void> _warmUpToken() async {
     final ok = await auth.fetchToken() != null;
     log(
