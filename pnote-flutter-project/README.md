@@ -1,15 +1,15 @@
-# PNote Demo App
+# PNote Flutter Project
 
-Demo app for the PNote Bluetooth voice-recorder pen. Built on [pnote_flutter_sdk](https://github.com/chenqiangchenqiang/pnote-flutter-sdk), it demonstrates the complete chain: device connection, recording control, live transcription with speaker separation, file management, local playback, and AI meeting-summary / mind-map generation.
+Flutter project for the PNote Bluetooth voice-recorder pen. Built on [pnote_flutter_sdk](https://github.com/chenqiangchenqiang/pnote-flutter-sdk), it demonstrates the complete chain: device connection, recording control, live transcription with speaker separation, file management, local playback, and AI meeting-summary / mind-map generation.
 
 > English | [中文](README.zh-CN.md)
 
 - Platforms: Android / iOS (Flutter)
 - Languages: Chinese / English (follows the system locale; **any non-Chinese system gets English**)
 - Theme color: `#3D9AFF` (design tokens in `lib/design/tokens.dart`)
-- Prebuilt test APK: [demo-apk/](demo-apk) (debug-signed, for evaluation only — build your own for production)
+- Prebuilt test APK: [project-apk/](project-apk) (debug-signed, for evaluation only — build your own for production)
 
-**Demo video**
+**Video**
 
 https://github.com/user-attachments/assets/606a73df-dad9-48d2-b2ed-ecc00dbb7535
 

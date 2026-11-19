@@ -1,5 +1,5 @@
 name: pnote_demo_app
-description: "Demo app for pnote_flutter_sdk (BLE voice recorder)"
+description: "Flutter project for pnote_flutter_sdk (BLE voice recorder)"
 publish_to: "none"
 version: 1.0.0+1
 

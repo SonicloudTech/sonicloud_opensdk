@@ -1,4 +1,4 @@
-# PNote Demo App
+# PNote Flutter Project
 
 录音笔（蓝牙智能笔）配套演示 App。基于 [pnote_flutter_sdk](https://github.com/chenqiangchenqiang/pnote-flutter-sdk) 演示设备连接、录音控制、实时转写（说话人分离）、文件管理、本地回放与 AI 纪要/思维导图生成的完整链路。
 
@@ -7,7 +7,7 @@
 - 平台：Android / iOS（Flutter）
 - 语言：中文 / 英文（默认跟随系统，**非中文系统一律英文**）
 - 主题色：`#3D9AFF`（设计令牌见 `lib/design/tokens.dart`）
-- 预编译测试包：[demo-apk/](demo-apk)（debug 签名，仅供安装体验，正式集成请自行构建）
+- 预编译测试包：[project-apk/](project-apk)（debug 签名，仅供安装体验，正式集成请自行构建）
 
 **演示视频**
 
