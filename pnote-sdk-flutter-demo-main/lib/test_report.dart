@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
 String formatTestDuration(Duration duration) {
@@ -13,6 +14,26 @@ String formatTestTimestamp(DateTime time) {
   String pad(int value) => value.toString().padLeft(2, '0');
   return '${time.year}-${pad(time.month)}-${pad(time.day)} '
       '${pad(time.hour)}:${pad(time.minute)}:${pad(time.second)}';
+}
+
+Future<String> formatTestStartHeader(DateTime time) async {
+  Map<String, dynamic>? info;
+  try {
+    info = await const MethodChannel('com.soni.soni_sdk_demo/recordPen')
+        .invokeMapMethod<String, dynamic>('getPhoneInfo');
+  } on MissingPluginException {
+    // Older native builds can still run tests without phone information.
+  } on PlatformException {
+    // Phone information is optional and must not interrupt the test.
+  }
+  String value(String key) => info?[key]?.toString().trim() ?? '';
+  final model = value('model');
+  final system = [value('systemName'), value('systemVersion')]
+      .where((part) => part.isNotEmpty)
+      .join(' ');
+  return '\n\n（${formatTestTimestamp(time)}） '
+      '手机：${model.isEmpty ? "未知" : model} · '
+      '系统：${system.isEmpty ? "未知" : system}\n';
 }
 
 String formatTestRate(int bytes, Duration duration) {
@@ -47,13 +68,13 @@ class TestReportStore extends ChangeNotifier {
   }
 
   void append(String text) {
-    _unsaved.add(text);
-    _enqueue();
+    _enqueue(addition: text);
   }
 
-  Future<void> _enqueue() {
+  Future<void> _enqueue({String? addition}) {
     _pending = _pending
         .then((_) async {
+          if (addition != null) _unsaved.add(addition);
           if (_unsaved.isEmpty) return;
           final count = _unsaved.length;
           final text = _unsaved.take(count).join();
@@ -94,14 +115,23 @@ class TestReportStore extends ChangeNotifier {
     return await file.exists() && await file.length() > 0 ? file : null;
   }
 
-  Future<void> clear() async {
-    await _pending;
-    final file = await _file();
-    if (await file.exists()) await file.delete();
-    _unsaved.clear();
-    _retryOffset = null;
-    _lastError = null;
-    if (!_disposed) notifyListeners();
+  Future<void> clear() {
+    final clearing = _pending.then((_) async {
+      final file = await _file();
+      if (await file.exists()) await file.delete();
+      _unsaved.clear();
+      _retryOffset = null;
+      _lastError = null;
+      if (!_disposed) notifyListeners();
+    });
+    _pending = clearing.then<void>(
+      (_) {},
+      onError: (Object error, StackTrace stack) {
+        _lastError = error;
+        if (!_disposed) notifyListeners();
+      },
+    );
+    return clearing;
   }
 
   Future<File> copyForSharing(String path) {

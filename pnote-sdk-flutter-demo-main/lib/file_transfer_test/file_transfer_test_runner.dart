@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../provider_record_pen.dart';
+import '../device_localizations.dart';
+import '../file_transfer_size_check.dart';
 import '../test_report.dart';
 
 class FileTransferTestRunner extends ChangeNotifier {
@@ -72,6 +74,18 @@ class FileTransferTestRunner extends ChangeNotifier {
   String get status => _status;
   String get speedSummary => _speedSummary;
   String get averageRate => _averageRate;
+
+  void clearResults() {
+    if (isBusy) throw StateError('请先结束文件传输测试');
+    _completed = 0;
+    _total = 0;
+    _successes = 0;
+    _failures.clear();
+    _status = '等待开始';
+    _speedSummary = '当前 --，最低 --，最高 --';
+    _averageRate = '--';
+    notifyListeners();
+  }
 
   String? get _address {
     if (!_provider.isConnected) return null;
@@ -169,7 +183,7 @@ class FileTransferTestRunner extends ChangeNotifier {
     var headerWritten = false;
     final device = _provider.deviceInfo;
     final deviceLabel = '${_provider.deviceType ?? "--"} · ${device?['name'] ?? "--"}';
-    void writeHeader() {
+    Future<void> writeHeader() async {
       if (headerWritten) return;
       headerWritten = true;
       final selected = _files.where((file) => file.name == fileName);
@@ -178,8 +192,9 @@ class FileTransferTestRunner extends ChangeNotifier {
           : '${(selected.first.sizeBytes / 1024).toStringAsFixed(1)}KB';
       final title = fileName == null
           ? '全部文件传输测试'
-          : '单次传输测试 - 重复$repetitions次 - $fileName - $size';
-      _onReport?.call('\n\n（${formatTestTimestamp(startedAt)}）\n'
+          : '单文件重复传输测试 - 重复$repetitions次 - $fileName - $size';
+      final header = await formatTestStartHeader(startedAt);
+      _onReport?.call('$header'
           '设备：$deviceLabel\n$title\n');
     }
     notifyListeners();
@@ -187,7 +202,7 @@ class FileTransferTestRunner extends ChangeNotifier {
       await _setStorage(false);
       _requireConnection();
       await _loadFiles();
-      writeHeader();
+      await writeHeader();
       if (_files.isEmpty) throw StateError('设备没有可传输的文件');
       if (fileName != null && !_files.any((file) => file.name == fileName)) {
         throw StateError('所选文件已不存在');
@@ -195,6 +210,10 @@ class FileTransferTestRunner extends ChangeNotifier {
       final names = fileName == null
           ? _files.map((file) => file.name).toList()
           : [fileName];
+      final expectedSizes = {
+        for (final file in _files)
+          file.name: file.sizeKnown ? file.sizeBytes : null,
+      };
       _total = fileName == null ? names.length : repetitions;
       if (fileName == null) {
         final size = _files.fold<int>(0, (sum, file) => sum + file.sizeBytes);
@@ -202,9 +221,14 @@ class FileTransferTestRunner extends ChangeNotifier {
       }
       for (var index = 0; index < _total; index++) {
         _requireConnection();
+        if (index > 0) {
+          await _waitBetweenTransfers();
+          _requireConnection();
+        }
         final name = fileName == null ? names[index] : fileName;
         _activeFile = name;
         _lastBytes = 0;
+        _provider.resetAudioRate(AudioDataType.file);
         _status = '第 ${index + 1}/$_total 次 · $name';
         notifyListeners();
         var terminal = false;
@@ -213,6 +237,11 @@ class FileTransferTestRunner extends ChangeNotifier {
         final elapsed = Stopwatch()..start();
         var outcome = '成功';
         String? failure;
+        FileTransferSizeCheck sizeCheck() => FileTransferSizeCheck(
+          fileName: name,
+          receivedBytes: _provider.audioReceivedBytes(AudioDataType.file),
+          expectedBytes: expectedSizes[name],
+        );
         try {
           final event = await _exchange(
             action: () {
@@ -267,6 +296,9 @@ class FileTransferTestRunner extends ChangeNotifier {
               _ => '文件传输回包异常',
             });
           }
+          final matches = sizeCheck().matches;
+          if (matches == null) throw StateError('无法校验文件大小');
+          if (!matches) throw StateError('文件大小不一致');
           _successes++;
         } catch (error) {
           elapsed.stop();
@@ -303,6 +335,7 @@ class FileTransferTestRunner extends ChangeNotifier {
           _onReport?.call('${index + 1}/$_total 结果：$outcome'
               '${failure == null ? "" : " 失败原因：$failure"}'
               ' ，文件：$name ，耗时：${formatTestDuration(elapsed.elapsed)}'
+              ' ，${const DeviceLocalizations().fileSizeCheck(sizeCheck())}'
               '  平均速度：$_averageRate'
               ' ，最高速度：${speed(bounds.maximum)}'
               ' ，最低速度：${speed(bounds.minimum)}\n');
@@ -313,7 +346,7 @@ class FileTransferTestRunner extends ChangeNotifier {
       }
       _status = _interrupted ? '测试已中断' : '测试结束';
     } catch (error) {
-      writeHeader();
+      await writeHeader();
       _onReport?.call('结果：${_interrupted || _disposed ? "中断" : "失败"}'
           ' 失败原因：${_failureReason(error)}\n');
       if (!_interrupted && !_disposed) _recordFailure(error);
@@ -334,6 +367,22 @@ class FileTransferTestRunner extends ChangeNotifier {
         _finished = null;
         if (!_disposed) notifyListeners();
       }
+    }
+  }
+
+  Future<void> _waitBetweenTransfers() async {
+    _status = '等待 2 秒后开始下一次传输';
+    final ready = Completer<void>();
+    final timer = Timer(const Duration(seconds: 2), ready.complete);
+    _cancelPending = (error) {
+      if (!ready.isCompleted) ready.completeError(error);
+    };
+    try {
+      notifyListeners();
+      await ready.future;
+    } finally {
+      timer.cancel();
+      _cancelPending = null;
     }
   }
 

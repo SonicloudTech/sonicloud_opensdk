@@ -9,6 +9,7 @@ class FileSharer {
     File source,
     Directory temporaryDirectory, {
     Future<File> Function(String)? copySource,
+    bool uniqueName = false,
   }) async {
     final root = Directory('${temporaryDirectory.path}/shared_files');
     await root.create(recursive: true);
@@ -26,8 +27,20 @@ class FileSharer {
     final staging = await root.createTemp('share-');
     var shared = false;
     try {
+      var name = source.uri.pathSegments.last;
+      if (uniqueName) {
+        final dot = name.lastIndexOf('.');
+        final stem = dot < 0 ? name : name.substring(0, dot);
+        final extension = dot < 0 ? '' : name.substring(dot);
+        final time = DateTime.now().toIso8601String()
+            .replaceAll(RegExp(r'[-:.]'), '').replaceFirst('T', '_');
+        final token = staging.uri.pathSegments
+            .where((part) => part.isNotEmpty).last.substring('share-'.length);
+        // 本地存储按文件名展示报告，导出时区分新旧快照。
+        name = '${stem}_${time}_$token$extension';
+      }
       final snapshot = await (copySource ?? source.copy)(
-        '${staging.path}/${source.uri.pathSegments.last}',
+        '${staging.path}/$name',
       );
       final mimeType = switch (source.path.toLowerCase().split('.').last) {
         'txt' => 'text/plain',

@@ -21,6 +21,15 @@ class OtaAutomationModule extends StatefulWidget {
   State<OtaAutomationModule> createState() => _OtaAutomationModuleState();
 }
 
+class BkOtaAutomationModule extends OtaAutomationModule {
+  const BkOtaAutomationModule({
+    super.key,
+    required super.provider,
+    required OtaAutomationRunner runner,
+    super.enabled,
+  }) : super(runner: runner);
+}
+
 class _OtaAutomationModuleState extends State<OtaAutomationModule> {
   final _formKey = GlobalKey<FormState>();
   final _attempts = TextEditingController(text: '1');
@@ -37,23 +46,24 @@ class _OtaAutomationModuleState extends State<OtaAutomationModule> {
   }
 
   Future<void> _selectFirmware(int index) async {
-    if (_picking || _runner.isRunning) return;
+    if (_picking || _runner.isBusy || !widget.enabled) return;
     setState(() => _picking = true);
     Directory? staging;
     try {
       final result = await FilePicker.pickFiles(
         type: Platform.isIOS ? FileType.any : FileType.custom,
-        allowedExtensions: Platform.isIOS ? null : ['ufw'],
+        allowedExtensions: Platform.isIOS ? null : _runner.firmwareExtensions,
       );
       if (!mounted || result == null || result.files.isEmpty) return;
       final picked = result.files.single;
       final path = picked.path;
-      if (!picked.name.toLowerCase().endsWith('.ufw') || path == null) {
-        throw const FormatException('请选择可读取的 .ufw 固件文件');
+      final extension = picked.name.toLowerCase().split('.').last;
+      if (!picked.name.contains('.') || !_runner.firmwareExtensions.contains(extension) || path == null) {
+        throw FormatException('请选择可读取的 ${_runner.firmwareExtensions.map((ext) => ".$ext").join(" / ")} 固件文件');
       }
       final temporary = await getTemporaryDirectory();
       staging = await temporary.createTemp('soni_ota_test_');
-      final file = await File(path).copy('${staging.path}/firmware.ufw');
+      final file = await File(path).copy('${staging.path}/firmware.$extension');
       if (await file.length() == 0) throw const FormatException('固件文件为空');
       if (!mounted) return;
       final previous = _firmware[index];
@@ -134,11 +144,11 @@ class _OtaAutomationModuleState extends State<OtaAutomationModule> {
     return ListenableBuilder(
       listenable: _runner,
       builder: (context, _) {
-        if (_runner.device?.type != OtaAutomationRunner.supportedDeviceType &&
+        if (!_runner.hasVisibleDevice &&
             !_runner.isRunning) {
           return const SizedBox.shrink();
         }
-        final locked = _runner.isRunning || _picking || !widget.enabled;
+        final locked = _runner.isBusy || _picking || !widget.enabled;
         final theme = Theme.of(context);
         return Form(
           key: _formKey,
@@ -154,7 +164,7 @@ class _OtaAutomationModuleState extends State<OtaAutomationModule> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 spacing: 6,
                 children: [
-                  Text('杰理OTA自动化测试', style: theme.textTheme.labelLarge),
+                  Text(_runner.title, style: theme.textTheme.labelLarge),
                   Row(
                     spacing: 6,
                     children: [
@@ -262,6 +272,9 @@ class _OtaAutomationModuleState extends State<OtaAutomationModule> {
           child: TextFormField(
             controller: _versions[index],
             enabled: !locked,
+            keyboardType: TextInputType.text,
+            autocorrect: false,
+            enableSuggestions: false,
             style: Theme.of(context).textTheme.bodySmall,
             decoration: _compactInput('固件版本$slot'),
             validator: (value) =>

@@ -126,7 +126,7 @@ void main() {
     });
     await provider.init();
 
-    Future<void> emitConnection(int? type) async {
+    Future<void> emitConnection(int? type, {String name = 'CB08'}) async {
       await messenger.handlePlatformMessage(
         events.name,
         const StandardMethodCodec().encodeSuccessEnvelope(
@@ -134,7 +134,7 @@ void main() {
             'cmd': 2,
             'data': {
               'connect_state': type == null ? '0' : '1',
-              'name': 'CB08',
+              'name': name,
               'address': type == null ? 'null' : 'AA:BB:CC:00:00:48',
               if (type != null) 'productType': type,
             },
@@ -173,7 +173,8 @@ void main() {
     expect(find.text('清空报告'), findsOneWidget);
     expect(tester.getCenter(reportShare).dy, closeTo(tester.getCenter(find.text('48 · CB08')).dy, 1));
     expect(find.descendant(of: find.byType(OtaAutomationModule), matching: find.text('48 · CB08')), findsNothing);
-    expect(find.text('测试次数'), findsOneWidget);
+    expect(find.descendant(of: find.byType(OtaAutomationModule), matching: find.text('测试次数')), findsOneWidget);
+    expect(find.text('设备蓝牙连接测试'), findsOneWidget);
     expect(find.text('失败次数 0'), findsOneWidget);
     for (final slot in [1, 2]) {
       final file = find.widgetWithText(TextButton, '固件文件$slot');
@@ -183,7 +184,7 @@ void main() {
       expect(tester.getCenter(file).dy, closeTo(tester.getCenter(version).dy, 1));
     }
     final start = tester.widget<FilledButton>(
-      find.widgetWithText(FilledButton, '启动测试'),
+      find.descendant(of: find.byType(OtaAutomationModule), matching: find.widgetWithText(FilledButton, '启动测试')),
     );
     expect(start.onPressed, isNotNull);
     expect(tester.takeException(), isNull);
@@ -193,12 +194,28 @@ void main() {
     expect(find.text('杰理OTA自动化测试'), findsOneWidget);
     expect(find.text('12'), findsOneWidget);
     expect(
-      tester.widget<FilledButton>(find.widgetWithText(FilledButton, '启动测试'))
+      tester.widget<FilledButton>(find.descendant(of: find.byType(OtaAutomationModule), matching: find.widgetWithText(FilledButton, '启动测试')))
           .onPressed,
       isNull,
     );
     await emitConnection(48);
     expect(find.text('12'), findsOneWidget);
+    await emitConnection(3, name: '外贸帮手');
+    expect(find.text('帮课 · 外贸帮手'), findsOneWidget);
+    await emitConnection(null);
+    expect(find.text('帮课 · 外贸帮手'), findsOneWidget);
+    for (final type in [64, 65, 66]) {
+      await emitConnection(type);
+      expect(find.text('杰理OTA自动化测试'), findsOneWidget);
+      expect(
+        tester.widget<FilledButton>(find.descendant(
+          of: find.byType(OtaAutomationModule),
+          matching: find.widgetWithText(FilledButton, '启动测试'),
+        )).onPressed,
+        isNotNull,
+      );
+      expect(find.text('BK OTA自动化测试'), findsNothing);
+    }
     await tester.pumpWidget(const SizedBox());
     await tester.pump(const Duration(seconds: 2));
     await tester.pump(const Duration(milliseconds: 50));

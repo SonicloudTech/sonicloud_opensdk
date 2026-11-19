@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'demo_button_feedback.dart';
+
 /// 按钮统一沿用底部标签的圆角、配色和字重。
 ThemeData createDemoTheme() {
   const primary = Color(0xFF3A7AFE);
@@ -27,6 +29,10 @@ ThemeData createDemoTheme() {
         minimumSize: const Size(0, 36),
         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
         textStyle: textStyle,
+      ).copyWith(
+        backgroundBuilder: demoButtonFeedback,
+        splashFactory: NoSplash.splashFactory,
+        overlayColor: const WidgetStatePropertyAll(Colors.transparent),
       ),
     ),
     textButtonTheme: TextButtonThemeData(
@@ -39,6 +45,10 @@ ThemeData createDemoTheme() {
         minimumSize: const Size(0, 36),
         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
         textStyle: textStyle,
+      ).copyWith(
+        backgroundBuilder: demoButtonFeedback,
+        splashFactory: NoSplash.splashFactory,
+        overlayColor: const WidgetStatePropertyAll(Colors.transparent),
       ),
     ),
     iconButtonTheme: IconButtonThemeData(
@@ -49,6 +59,10 @@ ThemeData createDemoTheme() {
         padding: const EdgeInsets.all(6),
         minimumSize: const Size(36, 36),
         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ).copyWith(
+        backgroundBuilder: demoButtonFeedback,
+        splashFactory: NoSplash.splashFactory,
+        overlayColor: const WidgetStatePropertyAll(Colors.transparent),
       ),
     ),
   );

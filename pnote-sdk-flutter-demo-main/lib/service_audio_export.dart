@@ -9,6 +9,7 @@ class AudioFileExporter {
     final reader = await source.open();
     try {
       final length = await reader.length();
+      if (source.path.toLowerCase().endsWith('.opus')) return length > 0;
       final header = await reader.read(44);
       if (header.length < 44) return false;
       final bytes = ByteData.sublistView(header);

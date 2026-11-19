@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 
+import 'device_localizations.dart';
+
 class DemoLogHeader extends StatelessWidget {
+  final DeviceLocalizations strings;
   final int lineCount;
   final bool autoScroll;
   final ValueChanged<bool> onAutoScrollChanged;
@@ -9,6 +12,7 @@ class DemoLogHeader extends StatelessWidget {
 
   const DemoLogHeader({
     super.key,
+    this.strings = const DeviceLocalizations(),
     required this.lineCount,
     required this.autoScroll,
     required this.onAutoScrollChanged,
@@ -40,9 +44,9 @@ class DemoLogHeader extends StatelessWidget {
         children: [
           const Icon(Icons.terminal, size: 14, color: Color(0xFF8A8AA0)),
           const SizedBox(width: 6),
-          const Text(
-            '日志',
-            style: TextStyle(
+          Text(
+            strings.log,
+            style: const TextStyle(
               color: Color(0xFFCDCDDA),
               fontSize: 12,
               fontWeight: FontWeight.w600,
@@ -56,9 +60,9 @@ class DemoLogHeader extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 spacing: 3,
                 children: [
-                  const Text(
-                    '自动滚底',
-                    style: TextStyle(color: Color(0xFFB8BDD0), fontSize: 11),
+                  Text(
+                    strings.autoScroll,
+                    style: const TextStyle(color: Color(0xFFB8BDD0), fontSize: 11),
                   ),
                   SizedBox(
                     width: 32,
@@ -80,12 +84,12 @@ class DemoLogHeader extends StatelessWidget {
                   TextButton(
                     style: actionStyle,
                     onPressed: onClear,
-                    child: const Text('清屏'),
+                    child: Text(strings.clearLog),
                   ),
                   TextButton(
                     style: actionStyle,
                     onPressed: onCopy,
-                    child: const Text('复制log'),
+                    child: Text(strings.copyLog),
                   ),
                 ],
               ),
@@ -99,7 +103,7 @@ class DemoLogHeader extends StatelessWidget {
               borderRadius: BorderRadius.circular(10),
             ),
             child: Text(
-              '$lineCount 行',
+              strings.logLineCount(lineCount),
               style: const TextStyle(color: Color(0xFF9A9AB0), fontSize: 11),
             ),
           ),

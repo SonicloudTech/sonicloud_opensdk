@@ -2,6 +2,7 @@ package com.soni.soni_sdk_demo
 
 import android.content.Intent
 import android.os.Bundle
+import android.os.Build
 import android.util.Log
 import android.content.ClipData
 import androidx.core.content.FileProvider
@@ -30,6 +31,14 @@ class MainActivity : FlutterFragmentActivity(), DeviceDataListener {
             channel
         ).setMethodCallHandler { call, result ->
             when (call.method) {
+
+                "getPhoneInfo" -> {
+                    result.success(mapOf(
+                        "model" to "${Build.MANUFACTURER} ${Build.MODEL}",
+                        "systemName" to "Android",
+                        "systemVersion" to Build.VERSION.RELEASE
+                    ))
+                }
 
                 "shareFile" -> {
                     val source = call.argument<String>("path")?.let { File(it) }
@@ -246,6 +255,16 @@ class MainActivity : FlutterFragmentActivity(), DeviceDataListener {
                 "syncTime" -> {
                     PNote.syncTime()
                     result.success(null)
+                }
+
+                "setTimestamp" -> {
+                    val timestamp = call.argument<Number>("timestamp")?.toLong()
+                    if (timestamp == null || timestamp !in 0L..0xFFFFFFFFL) {
+                        result.error("INVALID_TIMESTAMP", "时间戳需为 32 位无符号 Unix 秒", null)
+                    } else {
+                        PNote.setTimestamp(timestamp)
+                        result.success(null)
+                    }
                 }
 
                 "startBtnBackRecord" -> {

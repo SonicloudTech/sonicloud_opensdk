@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'bluetooth_connection_test/bluetooth_connection_test_module.dart';
+import 'bluetooth_connection_test/bluetooth_connection_test_runner.dart';
 import 'file_transfer_test/file_transfer_test_module.dart';
 import 'file_transfer_test/file_transfer_test_runner.dart';
 import 'ota_automation/ota_automation_module.dart';
@@ -15,12 +17,16 @@ class DemoTestPage extends StatefulWidget {
     required this.provider,
     this.runner,
     this.transferRunner,
+    this.bluetoothRunner,
+    this.bkRunner,
     this.reportStore,
   });
 
   final RecordPenProvider provider;
   final OtaAutomationRunner? runner;
   final FileTransferTestRunner? transferRunner;
+  final BluetoothConnectionTestRunner? bluetoothRunner;
+  final OtaAutomationRunner? bkRunner;
   final TestReportStore? reportStore;
 
   @override
@@ -30,6 +36,8 @@ class DemoTestPage extends StatefulWidget {
 class _DemoTestPageState extends State<DemoTestPage> {
   late final OtaAutomationRunner _ota;
   late final FileTransferTestRunner _transfer;
+  late final BluetoothConnectionTestRunner _bluetooth;
+  late final OtaAutomationRunner _bk;
   late final TestReportStore _reports;
   bool _sharing = false;
   bool _clearing = false;
@@ -42,22 +50,37 @@ class _DemoTestPageState extends State<DemoTestPage> {
         widget.runner ??
         OtaAutomationRunner(
           widget.provider,
-          canStartTest: () => !_transfer.isBusy,
+          canStartTest: () => !_transfer.isBusy && !_bluetooth.isRunning && !_bk.isBusy,
           onReport: _reports.append,
         );
     _transfer =
         widget.transferRunner ??
         FileTransferTestRunner(
           widget.provider,
-          canStartTest: () => !_ota.isRunning,
+          canStartTest: () => !_ota.isRunning && !_bluetooth.isRunning && !_bk.isBusy,
           onReport: _reports.append,
         );
+    _bluetooth =
+        widget.bluetoothRunner ??
+        BluetoothConnectionTestRunner(
+          widget.provider,
+          canStartTest: () => !_ota.isRunning && !_transfer.isBusy && !_bk.isBusy,
+          onReport: _reports.append,
+        );
+    _bk = widget.bkRunner ?? OtaAutomationRunner(
+      widget.provider,
+      isBk: true,
+      canStartTest: () => !_ota.isRunning && !_transfer.isBusy && !_bluetooth.isRunning,
+      onReport: _reports.append,
+    );
   }
 
   @override
   void dispose() {
     if (widget.runner == null) _ota.dispose();
     if (widget.transferRunner == null) _transfer.dispose();
+    if (widget.bluetoothRunner == null) _bluetooth.dispose();
+    if (widget.bkRunner == null) _bk.dispose();
     if (widget.reportStore == null) _reports.dispose();
     super.dispose();
   }
@@ -78,6 +101,7 @@ class _DemoTestPageState extends State<DemoTestPage> {
         file,
         await getTemporaryDirectory(),
         copySource: _reports.copyForSharing,
+        uniqueName: true,
       );
     } catch (error) {
       if (!mounted) return;
@@ -90,10 +114,14 @@ class _DemoTestPageState extends State<DemoTestPage> {
   }
 
   Future<void> _clearReport() async {
-    if (_clearing || _sharing || _ota.isRunning || _transfer.isBusy) return;
+    if (_clearing || _sharing || _ota.isRunning || _transfer.isBusy || _bluetooth.isRunning || _bk.isBusy) return;
     setState(() => _clearing = true);
     try {
       await _reports.clear();
+      _transfer.clearResults();
+      _ota.clearResults();
+      _bluetooth.clearResults();
+      _bk.clearResults();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('测试报告已清空')),
@@ -111,16 +139,20 @@ class _DemoTestPageState extends State<DemoTestPage> {
   String get _deviceLabel {
     final info = widget.provider.deviceInfo;
     if (info != null) {
-      return '${widget.provider.deviceType ?? "--"} · ${info['name'] ?? "--"}';
+      return '${widget.provider.deviceTypeLabel ?? "--"} · ${info['name'] ?? "--"}';
     }
-    final device = _ota.device;
-    return device == null ? '未连接设备' : '${device.type ?? "--"} · ${device.name}';
+    final bluetoothDevice = _bluetooth.isRunning ? _bluetooth.device : null;
+    if (bluetoothDevice != null) {
+      return '${bluetoothDevice['deviceTypeLabel'] ?? bluetoothDevice['productType'] ?? "--"} · ${bluetoothDevice['name']}';
+    }
+    final device = _bk.isRunning || _bk.hasVisibleDevice ? _bk.device : _ota.device;
+    return device == null ? '未连接设备' : '${device.typeLabel ?? device.type ?? "--"} · ${device.name}';
   }
 
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: Listenable.merge([_ota, _transfer, widget.provider, _reports]),
+      listenable: Listenable.merge([_ota, _transfer, _bluetooth, _bk, widget.provider, _reports]),
       builder: (context, _) => SingleChildScrollView(
         padding: const EdgeInsets.all(8),
         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
@@ -140,7 +172,7 @@ class _DemoTestPageState extends State<DemoTestPage> {
                   ),
                 ),
                 TextButton(
-                  onPressed: _clearing || _sharing || _ota.isRunning || _transfer.isBusy
+                  onPressed: _clearing || _sharing || _ota.isRunning || _transfer.isBusy || _bluetooth.isRunning || _bk.isBusy
                       ? null
                       : _clearReport,
                   child: const Text('清空报告'),
@@ -157,15 +189,25 @@ class _DemoTestPageState extends State<DemoTestPage> {
                 '测试报告保存失败，待重试：${_reports.lastError}',
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
+            BluetoothConnectionTestModule(
+              provider: widget.provider,
+              runner: _bluetooth,
+              enabled: !_ota.isRunning && !_transfer.isBusy && !_bk.isBusy && !_clearing,
+            ),
             FileTransferTestModule(
               provider: widget.provider,
               runner: _transfer,
-              enabled: !_ota.isRunning && !_clearing,
+              enabled: !_ota.isRunning && !_bluetooth.isRunning && !_bk.isBusy && !_clearing,
             ),
             OtaAutomationModule(
               provider: widget.provider,
               runner: _ota,
-              enabled: !_transfer.isBusy && !_clearing,
+              enabled: !_transfer.isBusy && !_bluetooth.isRunning && !_bk.isBusy && !_clearing,
+            ),
+            BkOtaAutomationModule(
+              provider: widget.provider,
+              runner: _bk,
+              enabled: !_ota.isRunning && !_transfer.isBusy && !_bluetooth.isRunning && !_clearing,
             ),
           ],
         ),

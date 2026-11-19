@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 
+import 'device_localizations.dart';
+
 class DemoHomeTabs extends StatefulWidget {
   final Widget device;
+  final String? deviceLabel;
   final Widget testPage;
   final Future<bool> Function()? onLeaveTest;
   final GlobalKey<ScaffoldState>? scaffoldKey;
@@ -11,6 +14,7 @@ class DemoHomeTabs extends StatefulWidget {
   const DemoHomeTabs({
     super.key,
     required this.device,
+    this.deviceLabel,
     this.testPage = const SizedBox.expand(),
     this.onLeaveTest,
     this.scaffoldKey,
@@ -98,7 +102,10 @@ class _DemoHomeTabsState extends State<DemoHomeTabs> {
                   fontWeight: FontWeight.w600,
                 ),
                 tabs: [
-                  _tab('设备', Icons.devices_outlined),
+                  _tab(
+                    widget.deviceLabel ?? const DeviceLocalizations().device,
+                    Icons.devices_outlined,
+                  ),
                   _tab('测试', Icons.science_outlined),
                 ],
               ),

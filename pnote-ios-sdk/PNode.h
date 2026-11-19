@@ -59,6 +59,9 @@
 ///同步时间
 -(void)syncTime;
 
+/// 设置时间戳，按 4 字节大端原样发送传入值；SDK 不处理时区或时间换算。
+-(void)setTimestamp:(uint32_t)timestamp;
+
 /// 设置离线文件传输间隔，单位为毫秒。
 -(void)sendFileTimeInterval:(uint8_t)interval;
 /// 收到 cmd=101 后回复设备心跳。

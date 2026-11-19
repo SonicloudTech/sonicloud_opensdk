@@ -1,10 +1,40 @@
 import 'dart:io';
 import 'dart:convert';
+import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:soni_sdk_demo/test_report.dart';
 
 void main() {
+  test('clearing serializes with later report rows without deleting them', () async {
+    final directory = await Directory.systemTemp.createTemp('soni-clear-order-');
+    addTearDown(() => directory.delete(recursive: true));
+    final entered = Completer<void>();
+    final release = Completer<void>();
+    var pauseClear = false;
+    final report = TestReportStore(directory: () async {
+      if (pauseClear) {
+        pauseClear = false;
+        entered.complete();
+        await release.future;
+      }
+      return directory;
+    });
+    addTearDown(report.dispose);
+    report.append('旧的全部文件传输测试\n');
+    await report.fileForSharing();
+    pauseClear = true;
+    final clearing = report.clear();
+    await entered.future;
+    report.append('新的单文件传输测试\n');
+    final sharing = report.fileForSharing();
+    release.complete();
+    await clearing;
+    final file = await sharing;
+    expect(file, isNotNull);
+    expect(await file!.readAsString(), '新的单文件传输测试\n');
+  });
+
   test('clearing removes saved and pending report content before new tests', () async {
     final directory = await Directory.systemTemp.createTemp('soni-clear-');
     addTearDown(() => directory.delete(recursive: true));

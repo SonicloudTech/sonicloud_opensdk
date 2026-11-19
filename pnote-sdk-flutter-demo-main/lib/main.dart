@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -24,10 +25,14 @@ import 'demo_log_header.dart';
 import 'demo_test_page.dart';
 import 'demo_theme.dart';
 import 'device_auth_config.dart';
+import 'device_localizations.dart';
 import 'file_transfer_test/file_transfer_test_runner.dart';
+import 'bluetooth_connection_test/bluetooth_connection_test_runner.dart';
+import 'file_transfer_size_check.dart';
 import 'log_clipboard.dart';
 import 'logger.dart';
 import 'ogg_opus_writer.dart';
+import 'raw_opus_writer.dart';
 import 'ota_automation/ota_automation_runner.dart';
 import 'provider_record_pen.dart';
 import 'test_report.dart';
@@ -58,7 +63,7 @@ class MyApp extends StatelessWidget {
         debugShowCheckedModeBanner: false,
         theme: createDemoTheme(),
         home: const MyHomePage(
-          title: deviceAes256Gcm ? 'SoniSDKDemo-BK解密' : 'SoniSDKDemo',
+          title: deviceAes256Gcm ? DeviceLocalizations.bkDemoTitle : 'SoniSDKDemo',
         ),
       ),
     );
@@ -90,7 +95,9 @@ class MyHomePage extends StatefulWidget {
 class _MyHomePageState extends State<MyHomePage> {
   late RecordPenProvider _recordPenProvider;
   late OtaAutomationRunner _otaRunner;
+  late OtaAutomationRunner _bkOtaRunner;
   late FileTransferTestRunner _transferTestRunner;
+  late BluetoothConnectionTestRunner _bluetoothTestRunner;
   final TestReportStore _testReports = TestReportStore();
   final ScrollController _scrollController = ScrollController();
   final List _data = [];
@@ -108,6 +115,8 @@ class _MyHomePageState extends State<MyHomePage> {
   static const _transferPcmName = 'transfer_play.pcm';
   static const _recordWavName = 'record_play.wav';
   static const _transferWavName = 'transfer_play.wav';
+  static const _recordRawOpusName = 'record_raw.opus';
+  static const _transferRawOpusName = 'transfer_raw.opus';
 
   bool get _useOggStorage => Platform.isAndroid;
   String get _recordAudioName =>
@@ -130,6 +139,9 @@ class _MyHomePageState extends State<MyHomePage> {
   IOSink? _transferPcmSink;
   OggOpusWriter? _recordOggWriter;
   OggOpusWriter? _transferOggWriter;
+  RawOpusWriter? _recordRawOpusWriter;
+  RawOpusWriter? _transferRawOpusWriter;
+  StreamSubscription<Map<String, dynamic>>? _audioSubscription;
   final AudioTaskQueue _recordAudioQueue = AudioTaskQueue();
   final AudioTaskQueue _transferAudioQueue = AudioTaskQueue();
   bool _recordStarting = false;
@@ -140,6 +152,7 @@ class _MyHomePageState extends State<MyHomePage> {
   bool _transferAudioExists = false;
   bool _audioExportInProgress = false;
   String _appVersion = '';
+  DeviceLocalizations _strings = const DeviceLocalizations();
   final TextEditingController _sendFileTimeIntervalController =
       TextEditingController(text: '13');
   String? _selectedDeviceAddress;
@@ -166,7 +179,7 @@ class _MyHomePageState extends State<MyHomePage> {
 
     _recordPenProvider = Provider.of<RecordPenProvider>(context, listen: false);
     _otaRunner = OtaAutomationRunner(
-      _recordPenProvider, canStartTest: () => !_transferTestRunner.isBusy,
+      _recordPenProvider, canStartTest: () => !_transferTestRunner.isBusy && !_bluetoothTestRunner.isRunning && !_bkOtaRunner.isBusy,
       onReport: _testReports.append,
     );
     _transferTestRunner = FileTransferTestRunner(
@@ -176,14 +189,36 @@ class _MyHomePageState extends State<MyHomePage> {
         if (!enabled) await _recordFinishRequest;
         await _setAudioDecodeAndStoreEnabled(enabled);
       },
-      canStartTest: () => !_otaRunner.isRunning,
+      canStartTest: () => !_otaRunner.isRunning && !_bluetoothTestRunner.isRunning && !_bkOtaRunner.isBusy,
+      onReport: _testReports.append,
+    );
+    _bluetoothTestRunner = BluetoothConnectionTestRunner(
+      _recordPenProvider,
+      canStartTest: () => !_otaRunner.isRunning && !_transferTestRunner.isBusy && !_bkOtaRunner.isBusy,
+      onReport: _testReports.append,
+    );
+    _bkOtaRunner = OtaAutomationRunner(
+      _recordPenProvider,
+      isBk: true,
+      canStartTest: () => !_otaRunner.isRunning && !_transferTestRunner.isBusy && !_bluetoothTestRunner.isRunning,
       onReport: _testReports.append,
     );
     _recordPenProvider.addListener(_syncAuthkeyForDevice);
     _syncAuthkeyForDevice();
     _recordPenProvider.init();
 
-    _recordPenProvider.streamController.stream.listen((event) async {
+    _audioSubscription =
+        _recordPenProvider.streamController.stream.listen((event) async {
+      if (event.containsKey('rawAudio')) {
+        final audioType = event['audioType'] as String;
+        final queue = _isRecordAudio(audioType)
+            ? _recordAudioQueue
+            : _transferAudioQueue;
+        await queue.run(
+          () => _processRawAudio(event['rawAudio'] as List<int>, audioType),
+        );
+        return;
+      }
       if (event.containsKey('audio')) {
         final audioType = event['audioType'] as String? ?? AudioDataType.record;
         final frame = event['audio'] as List<int>;
@@ -303,6 +338,9 @@ class _MyHomePageState extends State<MyHomePage> {
 
   String _formatEventLog(dynamic event) {
     if (event is! Map) return event.toString();
+    if (event[RecordPenProvider.fileTransferSizeKey] case final FileTransferSizeCheck check) {
+      return '[蓝牙调试][文件传输] ${check.fileName} ${_strings.fileSizeCheck(check)}';
+    }
     if (event[RecordPenProvider.otaTransferErrorKey] case final String error) {
       return '[蓝牙调试][OTA升级] 失败：$error';
     }
@@ -402,6 +440,7 @@ class _MyHomePageState extends State<MyHomePage> {
     try {
       await _recordAudioQueue.run(() async {
         try {
+          await _finishRawOpus(AudioDataType.record, save: false);
           await _discardOggAudio(_recordOggWriter, _recordAudioName);
           await _recordPcmSink?.flush();
           await _recordPcmSink?.close();
@@ -411,6 +450,7 @@ class _MyHomePageState extends State<MyHomePage> {
           _recordFinishRequest = null;
         }
       });
+      await _finishRawOpus(AudioDataType.file, save: false);
       if (_useOggStorage) {
         await _discardOggAudio(_transferOggWriter, _transferAudioName);
       }
@@ -440,7 +480,7 @@ class _MyHomePageState extends State<MyHomePage> {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('暂无日志')));
+      ).showSnackBar(SnackBar(content: Text(_strings.noLogs)));
       return;
     }
     final lineCount = _data.length;
@@ -449,7 +489,7 @@ class _MyHomePageState extends State<MyHomePage> {
       await _showLogCopyParts(parts, lineCount);
       return;
     }
-    final message = await _copyLogText(parts.single, '已完整复制 $lineCount 行日志');
+    final message = await _copyLogText(parts.single, _strings.copiedLogLines(lineCount));
     if (!mounted) return;
     ScaffoldMessenger.of(
       context,
@@ -459,9 +499,9 @@ class _MyHomePageState extends State<MyHomePage> {
   Future<String> _copyLogText(String text, String successMessage) async {
     try {
       if (await LogClipboard.copy(text)) return successMessage;
-      return '复制不完整：系统剪贴板未能保存全部内容，请缩短日志后重试';
+      return _strings.copyIncomplete;
     } catch (_) {
-      return '复制失败：无法读写系统剪贴板，请缩短日志或重试';
+      return _strings.copyFailed;
     }
   }
 
@@ -475,17 +515,16 @@ class _MyHomePageState extends State<MyHomePage> {
       barrierDismissible: false,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          title: const Text('日志过长，请分段复制'),
+          title: Text(_strings.copyPartsTitle),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                '本次共 $lineCount 行日志，超过单次安全复制长度（256 KB），'
-                '已保留完整内容并分为 ${parts.length} 段。每次复制后请先粘贴，再复制下一段。',
+                _strings.logPartsDescription(lineCount, parts.length),
               ),
               const SizedBox(height: 12),
-              Text('第 ${index + 1} / ${parts.length} 段，已复制 ${copiedParts.length} 段'),
+              Text(_strings.logPartProgress(index + 1, parts.length, copiedParts.length)),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -498,7 +537,7 @@ class _MyHomePageState extends State<MyHomePage> {
                               message = '';
                             });
                           },
-                    child: const Text('上一段'),
+                    child: Text(_strings.previousPart),
                   ),
                   TextButton(
                     onPressed: copying || index == parts.length - 1
@@ -509,7 +548,7 @@ class _MyHomePageState extends State<MyHomePage> {
                               message = '';
                             });
                           },
-                    child: const Text('下一段'),
+                    child: Text(_strings.nextPart),
                   ),
                 ],
               ),
@@ -519,14 +558,14 @@ class _MyHomePageState extends State<MyHomePage> {
           actions: [
             TextButton(
               onPressed: copying ? null : () => Navigator.of(dialogContext).pop(),
-              child: const Text('关闭'),
+              child: Text(_strings.close),
             ),
             FilledButton(
               onPressed: copying
                   ? null
                   : () async {
                       setDialogState(() => copying = true);
-                      final successMessage = '已完整复制第 ${index + 1} 段';
+                      final successMessage = _strings.copiedLogPart(index + 1);
                       final result = await _copyLogText(parts[index], successMessage);
                       if (!dialogContext.mounted) return;
                       setDialogState(() {
@@ -535,7 +574,7 @@ class _MyHomePageState extends State<MyHomePage> {
                         if (result == successMessage) copiedParts.add(index);
                       });
                     },
-              child: Text(copying ? '复制中…' : '复制当前段'),
+              child: Text(copying ? _strings.copying : _strings.copyCurrentPart),
             ),
           ],
         ),
@@ -578,6 +617,8 @@ class _MyHomePageState extends State<MyHomePage> {
     _lastRecordAudioLogAt = null;
     _recordAudioFinished = false;
     _recordFinishRequest = null;
+    await _finishRawOpus(AudioDataType.record, save: false);
+    _recordRawOpusWriter = RawOpusWriter(File('${dir.path}/$_recordRawOpusName'));
     if (_useOggStorage) {
       await _recordOggWriter?.close();
       _recordOggWriter = OggOpusWriter(
@@ -626,6 +667,10 @@ class _MyHomePageState extends State<MyHomePage> {
     _transferOpusFrames = 0;
     _transferOpusBytes = 0;
     _lastTransferAudioLogAt = null;
+    await _finishRawOpus(AudioDataType.file, save: false);
+    _transferRawOpusWriter = RawOpusWriter(
+      File('${dir.path}/$_transferRawOpusName'),
+    );
     if (_useOggStorage) {
       await _transferOggWriter?.close();
       _transferOggWriter = OggOpusWriter(
@@ -648,6 +693,36 @@ class _MyHomePageState extends State<MyHomePage> {
     }
     if (_transferPcmSink != null) return;
     await _resetTransferAudio();
+  }
+
+  Future<void> _processRawAudio(List<int> data, String audioType) async {
+    if (!_recordPenProvider.audioDecodeAndStoreEnabled) return;
+    try {
+      if (_isRecordAudio(audioType)) {
+        if (_recordRawOpusWriter == null) await _resetRecordAudio();
+        await _recordRawOpusWriter!.add(data);
+      } else {
+        if (_transferRawOpusWriter == null) await _resetTransferAudio();
+        await _transferRawOpusWriter!.add(data);
+      }
+    } catch (error) {
+      Log.e('[蓝牙调试][原始Opus][$audioType] 保存失败: $error');
+    }
+  }
+
+  Future<void> _finishRawOpus(String audioType, {bool save = true}) async {
+    final isRecord = _isRecordAudio(audioType);
+    final writer = isRecord ? _recordRawOpusWriter : _transferRawOpusWriter;
+    if (isRecord) {
+      _recordRawOpusWriter = null;
+    } else {
+      _transferRawOpusWriter = null;
+    }
+    try {
+      await writer?.close(save: save);
+    } catch (error) {
+      Log.e('[蓝牙调试][原始Opus][$audioType] 结束保存失败: $error');
+    }
   }
 
   Future<void> _processAudioFrame(List<int> frame, String audioType) async {
@@ -719,6 +794,7 @@ class _MyHomePageState extends State<MyHomePage> {
     if (!_recordPenProvider.audioDecodeAndStoreEnabled) return;
     if (_recordAudioFinished) return;
     try {
+      await _finishRawOpus(AudioDataType.record);
       if (_useOggStorage) {
         await _finishOggAudio(AudioDataType.record);
         return;
@@ -746,7 +822,7 @@ class _MyHomePageState extends State<MyHomePage> {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('录音已保存: $_recordWavName')));
+      ).showSnackBar(SnackBar(content: Text(_strings.recordingSaved(_recordWavName))));
     } catch (e) {
       Log.e('录音结束处理失败: $e');
     }
@@ -755,6 +831,7 @@ class _MyHomePageState extends State<MyHomePage> {
   Future<void> _finishTransferAudio() async {
     if (!_recordPenProvider.audioDecodeAndStoreEnabled) return;
     try {
+      await _finishRawOpus(AudioDataType.file);
       if (_useOggStorage) {
         await _finishOggAudio(AudioDataType.file);
         return;
@@ -778,7 +855,7 @@ class _MyHomePageState extends State<MyHomePage> {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('传输文件已保存: $_transferWavName')));
+      ).showSnackBar(SnackBar(content: Text(_strings.transferSaved(_transferWavName))));
     } catch (e) {
       final message = _useOggStorage
           ? '[蓝牙调试][文件传输] Ogg封装或保存失败: $e'
@@ -814,7 +891,7 @@ class _MyHomePageState extends State<MyHomePage> {
     Log.d(message);
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('${isRecord ? '录音' : '传输文件'}已保存: $name')),
+      SnackBar(content: Text(isRecord ? _strings.recordingSaved(name) : _strings.transferSaved(name))),
     );
   }
 
@@ -847,7 +924,7 @@ class _MyHomePageState extends State<MyHomePage> {
         if (!mounted) return;
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('$label 音频不存在，请先录音/传输')));
+        ).showSnackBar(SnackBar(content: Text(_strings.audioMissing(label))));
         return;
       }
       await _audioPlayer.stop();
@@ -855,13 +932,13 @@ class _MyHomePageState extends State<MyHomePage> {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('正在播放$label')));
+      ).showSnackBar(SnackBar(content: Text(_strings.playingAudio(label))));
     } catch (e) {
       Log.e('播放$label失败: $e');
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('播放$label失败: $e')));
+      ).showSnackBar(SnackBar(content: Text(_strings.playbackFailed(label, e))));
     }
   }
 
@@ -872,8 +949,10 @@ class _MyHomePageState extends State<MyHomePage> {
       final dir = await _ensureDirectory();
       final files = <String, File>{};
       for (final (label, name) in [
-        ('实时录音', _recordAudioName),
-        ('传输音频', _transferAudioName),
+        (_strings.liveRecording, _recordAudioName),
+        (_strings.transferAudio, _transferAudioName),
+        (_strings.rawOpusAudio(_strings.liveRecording), _recordRawOpusName),
+        (_strings.rawOpusAudio(_strings.transferAudio), _transferRawOpusName),
       ]) {
         final file = File('${dir.path}/$name');
         if (await AudioFileExporter.isSaved(file)) files[label] = file;
@@ -881,7 +960,7 @@ class _MyHomePageState extends State<MyHomePage> {
       if (!mounted) return;
       if (files.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('暂无已保存的音频，请先录音或传输文件')),
+          SnackBar(content: Text(_strings.noSavedAudio)),
         );
         return;
       }
@@ -890,7 +969,7 @@ class _MyHomePageState extends State<MyHomePage> {
           : await showDialog<File>(
               context: context,
               builder: (context) => SimpleDialog(
-                title: const Text('选择要分享的音频'),
+                title: Text(_strings.selectShareAudio),
                 children: [
                   for (final entry in files.entries)
                     SimpleDialogOption(
@@ -908,7 +987,7 @@ class _MyHomePageState extends State<MyHomePage> {
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('分享音频失败：$error')),
+        SnackBar(content: Text(_strings.shareAudioFailed(error))),
       );
     } finally {
       if (mounted) setState(() => _audioExportInProgress = false);
@@ -917,8 +996,17 @@ class _MyHomePageState extends State<MyHomePage> {
 
   @override
   void dispose() {
+    unawaited(_audioSubscription?.cancel());
+    unawaited(_recordAudioQueue.run(
+      () => _finishRawOpus(AudioDataType.record, save: false),
+    ));
+    unawaited(_transferAudioQueue.run(
+      () => _finishRawOpus(AudioDataType.file, save: false),
+    ));
     _transferTestRunner.dispose();
     _otaRunner.dispose();
+    _bkOtaRunner.dispose();
+    _bluetoothTestRunner.dispose();
     _testReports.dispose();
     _recordPenProvider.removeListener(_syncAuthkeyForDevice);
     _audioPlayer.dispose();
@@ -955,7 +1043,7 @@ class _MyHomePageState extends State<MyHomePage> {
     if (device == null) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('请先搜索并选择要连接的设备')));
+      ).showSnackBar(SnackBar(content: Text(_strings.selectDeviceFirst)));
       return;
     }
     provider.connect(device);
@@ -977,7 +1065,7 @@ class _MyHomePageState extends State<MyHomePage> {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('AuthKey 认证调用失败: $e')));
+      ).showSnackBar(SnackBar(content: Text(_strings.authkeyFailed(e))));
     }
   }
 
@@ -991,21 +1079,21 @@ class _MyHomePageState extends State<MyHomePage> {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('$title 调用失败: $e')));
+      ).showSnackBar(SnackBar(content: Text(_strings.settingFailed(title, e))));
     }
   }
 
   Future<void> _showSetAuthkeyDialog() async {
     final controller = TextEditingController();
     final authkey = await _showInputDialog(
-      title: '修改AuthKey',
+      title: _strings.setAuthkey,
       controller: controller,
-      hint: '请输入新的 64 位十六进制 AuthKey',
+      hint: _strings.newAuthkeyHint,
       trimInput: false,
     );
     if (authkey == null || !mounted) return;
     await _runDeviceSetting(
-      '修改AuthKey',
+      _strings.setAuthkey,
       () => _recordPenProvider.resetAuthkey(authkey),
     );
   }
@@ -1013,24 +1101,24 @@ class _MyHomePageState extends State<MyHomePage> {
   Future<void> _showSetWifiPasswordDialog() async {
     final controller = TextEditingController(text: '12345678');
     final password = await _showInputDialog(
-      title: '修改热点密码',
+      title: _strings.setWifiPassword,
       controller: controller,
-      hint: '8-16 个字符，下次开启热点生效',
+      hint: _strings.wifiPasswordHint,
     );
     if (password == null || !mounted) return;
     await _runDeviceSetting(
-      '修改热点密码',
+      _strings.setWifiPassword,
       () => _recordPenProvider.setWifiPassword(password),
     );
   }
 
   Future<void> _showWifiPasswordConnectDialog({bool quickConnect = false}) async {
     final controller = TextEditingController(text: quickConnect ? '' : '12345678');
-    final title = quickConnect ? '一键连接WiFi' : '密码连接';
+    final title = quickConnect ? _strings.quickConnectWifi : _strings.passwordConnect;
     final password = await _showInputDialog(
       title: title,
       controller: controller,
-      hint: quickConnect ? '请输入设备热点密码，无密码可留空' : '请输入设备热点密码',
+      hint: quickConnect ? _strings.optionalWifiPasswordHint : _strings.enterWifiPassword,
       keyboardType: TextInputType.visiblePassword,
       trimInput: false,
     );
@@ -1071,15 +1159,15 @@ class _MyHomePageState extends State<MyHomePage> {
 
   Future<void> _showSetTransferIntervalDialog() async {
     final input = await _showInputDialog(
-      title: '设置传输间隔',
+      title: _strings.setTransferInterval,
       controller: _sendFileTimeIntervalController,
-      hint: '13–255 毫秒',
+      hint: _strings.transferIntervalHint,
       keyboardType: TextInputType.number,
     );
     if (input == null || !mounted) return;
-    await _runDeviceSetting('设置传输间隔', () async {
+    await _runDeviceSetting(_strings.setTransferInterval, () async {
       final interval = int.tryParse(input, radix: 10);
-      if (interval == null) throw const FormatException('请输入整数毫秒值');
+      if (interval == null) throw FormatException(_strings.integerIntervalRequired);
       await _recordPenProvider.setSendFileTimeInterval(interval);
     });
   }
@@ -1089,7 +1177,7 @@ class _MyHomePageState extends State<MyHomePage> {
     if (name.isNotEmpty) return name;
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(const SnackBar(content: Text('请先获取并选择传输文件')));
+    ).showSnackBar(SnackBar(content: Text(_strings.selectTransferFileFirst)));
     return null;
   }
 
@@ -1107,7 +1195,7 @@ class _MyHomePageState extends State<MyHomePage> {
         if (!mounted) return;
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(const SnackBar(content: Text('请选择 .ufw 固件文件')));
+        ).showSnackBar(SnackBar(content: Text(_strings.selectUfwFirmware)));
         return;
       }
 
@@ -1122,7 +1210,7 @@ class _MyHomePageState extends State<MyHomePage> {
         if (!mounted) return;
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(const SnackBar(content: Text('无法读取所选固件')));
+        ).showSnackBar(SnackBar(content: Text(_strings.unreadableFirmware)));
         return;
       }
 
@@ -1137,12 +1225,12 @@ class _MyHomePageState extends State<MyHomePage> {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('选择固件失败: $e')));
+      ).showSnackBar(SnackBar(content: Text(_strings.selectFirmwareFailed(e))));
     }
   }
 
   Future<bool> _confirmLeaveTest() async {
-    if (!_otaRunner.isRunning && !_transferTestRunner.isRunning) return true;
+    if (!_otaRunner.isRunning && !_transferTestRunner.isRunning && !_bluetoothTestRunner.isRunning && !_bkOtaRunner.isBusy) return true;
     final interrupt = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -1163,6 +1251,8 @@ class _MyHomePageState extends State<MyHomePage> {
     if (interrupt != true || !mounted) return false;
     await _otaRunner.interrupt();
     await _transferTestRunner.interrupt();
+    await _bluetoothTestRunner.interrupt();
+    await _bkOtaRunner.interrupt();
     return true;
   }
 
@@ -1178,7 +1268,7 @@ class _MyHomePageState extends State<MyHomePage> {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('请求并发送失败: $e')));
+      ).showSnackBar(SnackBar(content: Text(_strings.requestAndSendFailed(e))));
     } finally {
       if (mounted) setState(() => _otaRequestInProgress = false);
     }
@@ -1190,27 +1280,35 @@ class _MyHomePageState extends State<MyHomePage> {
     final discoveredDevices = recordPenProvider.discoveredDevices;
     if (_selectedDeviceAddress != null &&
         !discoveredDevices.any((d) => d['address'] == _selectedDeviceAddress)) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        setState(() => _selectedDeviceAddress = null);
-      });
+      _selectedDeviceAddress = null;
     }
 
     return DemoHomeTabs(
       scaffoldKey: _scaffoldKey,
+      deviceLabel: _strings.device,
       testPage: DemoTestPage(
         provider: recordPenProvider,
         runner: _otaRunner,
         transferRunner: _transferTestRunner,
+        bluetoothRunner: _bluetoothTestRunner,
+        bkRunner: _bkOtaRunner,
         reportStore: _testReports,
       ),
       onLeaveTest: _confirmLeaveTest,
       appBar: AppBar(
         toolbarHeight: 40,
         titleSpacing: 8,
-        actions: const [SizedBox.shrink()],
+        actions: [
+          TextButton(
+            onPressed: () => setState(() {
+              _strings = DeviceLocalizations(isEnglish: !_strings.isEnglish);
+            }),
+            child: Text(_strings.switchLanguage),
+          ),
+          const SizedBox(width: 8),
+        ],
         title: Text(
-          _appVersion.isEmpty ? widget.title : '${widget.title} V$_appVersion',
+          _appVersion.isEmpty ? _strings.appTitle(widget.title) : '${_strings.appTitle(widget.title)} V$_appVersion',
           style: const TextStyle(fontSize: 13),
         ),
       ),
@@ -1245,7 +1343,7 @@ class _MyHomePageState extends State<MyHomePage> {
                   _audioRateExpanded ? Icons.expand_less : Icons.expand_more,
                   size: 16,
                 ),
-                label: Text(_audioRateExpanded ? '收起音频传输速率' : '展开音频传输速率'),
+                label: Text(_audioRateExpanded ? _strings.collapseAudioRate : _strings.expandAudioRate),
               ),
             ),
             if (_audioRateExpanded) ...[
@@ -1260,6 +1358,7 @@ class _MyHomePageState extends State<MyHomePage> {
                 keyboardDismissBehavior:
                     ScrollViewKeyboardDismissBehavior.onDrag,
                 child: DemoFunctionPanel(
+                  strings: _strings,
                   fileSelector: DropdownButtonFormField<String>(
                     isExpanded: true,
                     isDense: true,
@@ -1273,10 +1372,10 @@ class _MyHomePageState extends State<MyHomePage> {
                         : null,
                     style: const TextStyle(fontSize: 11, color: Colors.black),
                     decoration: _compactInput(
-                      '选择传输文件 (${recordPenProvider.recordFiles.length})',
+                      _strings.selectTransferFile(recordPenProvider.recordFiles.length),
                     ),
-                    hint: const Text(
-                      '先获取文件列表',
+                    hint: Text(
+                      _strings.getFileListFirst,
                       style: TextStyle(fontSize: 10, color: Colors.grey),
                     ),
                     selectedItemBuilder: (context) => recordPenProvider
@@ -1335,10 +1434,10 @@ class _MyHomePageState extends State<MyHomePage> {
                             color: Colors.black,
                           ),
                           decoration: _compactInput(
-                            '选择设备 (${discoveredDevices.length})',
+                            _strings.selectDevice(discoveredDevices.length),
                           ),
-                          hint: const Text(
-                            '搜索后选择设备',
+                          hint: Text(
+                            _strings.selectDeviceHint,
                             style: TextStyle(
                               fontSize: 10,
                               color: Colors.grey,
@@ -1375,7 +1474,7 @@ class _MyHomePageState extends State<MyHomePage> {
                               : () => _connectSelectedDevice(
                                   recordPenProvider,
                                 ),
-                          child: const Text('连接'),
+                          child: Text(_strings.connect),
                         ),
                       ),
                     ],
@@ -1400,69 +1499,69 @@ class _MyHomePageState extends State<MyHomePage> {
             child: TextField(
               controller: _authkeyController,
               style: const TextStyle(fontSize: 11),
-              decoration: _compactInput('AuthKey'),
+              decoration: _compactInput(_strings.authkey),
             ),
           ),
           SizedBox(
             height: 40,
             child: FilledButton(
               onPressed: () => _authkeyConnect(provider),
-              child: const Text('认证'),
+              child: Text(_strings.authenticate),
             ),
           ),
         ],
       ),
-      3 => _buttonItem('修改AuthKey', _showSetAuthkeyDialog),
-      4 => _buttonItem('重置AuthKey', () {
-        _runDeviceSetting('重置AuthKey', provider.unbondAuthkey);
+      3 => _buttonItem(_strings.setAuthkey, _showSetAuthkeyDialog),
+      4 => _buttonItem(_strings.resetAuthkey, () {
+        _runDeviceSetting(_strings.resetAuthkey, provider.unbondAuthkey);
       }),
-      5 => _buttonItem('设置设备名', _showSetDeviceNameDialog),
-      6 => _buttonItem(provider.deviceType == 199 ? '格式化' : '重置', () {
-        _runDeviceSetting('格式化', provider.resetDevice);
+      5 => _buttonItem(_strings.setDeviceName, _showSetDeviceNameDialog),
+      6 => _buttonItem(provider.deviceType == 199 ? _strings.formatDevice : _strings.resetDevice, () {
+        _runDeviceSetting(_strings.formatDevice, provider.resetDevice);
       }),
-      7 => _buttonItem('搜索设备', () {
+      7 => _buttonItem(_strings.searchDevices, () {
         setState(() => _selectedDeviceAddress = null);
         provider.startSearch();
       }),
-      8 => _buttonItem('停止搜索', provider.stopSearch),
-      9 => _buttonItem('是否链接', provider.isDeviceConnected),
-      10 => _buttonItem('断开链接', provider.closeConnect),
-      11 => _buttonItem('录音状态', provider.getRecordState),
-      12 => _buttonItem('开始录音', _startRecord),
-      13 => _buttonItem('L09录音', _showL09RecordDialog),
-      14 => _buttonItem('暂停录音', provider.pauseRecord),
-      15 => _buttonItem('继续录音', provider.continueRecord),
-      16 => _buttonItem('停止录音', () {
+      8 => _buttonItem(_strings.stopSearch, provider.stopSearch),
+      9 => _buttonItem(_strings.checkConnection, provider.isDeviceConnected),
+      10 => _buttonItem(_strings.disconnect, provider.closeConnect),
+      11 => _buttonItem(_strings.recordState, provider.getRecordState),
+      12 => _buttonItem(_strings.startRecord, _startRecord),
+      13 => _buttonItem(_strings.l09Record, _showL09RecordDialog),
+      14 => _buttonItem(_strings.pauseRecord, provider.pauseRecord),
+      15 => _buttonItem(_strings.resumeRecord, provider.continueRecord),
+      16 => _buttonItem(_strings.stopRecord, () {
         provider.stopRecord();
         _scheduleFinishRecordAudio();
       }),
-      17 => _buttonItem('▶ 播放录音', () {
-        _playAudio(_recordAudioName, '录音');
+      17 => _buttonItem(_strings.playRecord, () {
+        _playAudio(_recordAudioName, _strings.recording);
       }, enabled: _recordAudioExists),
-      18 => _buttonItem('后连：获取录音文件名', provider.getFileName),
-      19 => _buttonItem('后连：获取时长和流', provider.getTimeOnlyRecording),
-      20 => _buttonItem('获取电量', provider.getCBC),
-      21 => _buttonItem('获取容量', provider.getDeviceCapacity),
-      22 => _buttonItem('获取SN', provider.getSN),
-      23 => _buttonItem('给设备下发时间', provider.asyncNowTime),
-      24 => _buttonItem('获取当前增益', provider.getDeviceGain),
-      25 => _buttonItem('设置当前增益', () => provider.setDeviceGain(3)),
-      26 => _buttonItem('通知APP前后台', () => provider.sendAppShowState(2)),
-      27 => _buttonItem('获取固件版本号', provider.getDeviceVersion),
-      28 => _buttonItem('文件列表', provider.getRecordFileList),
-      29 => _buttonItem('删除文件', () async {
+      18 => _buttonItem(_strings.getRecordingName, provider.getFileName),
+      19 => _buttonItem(_strings.getRecordingStream, provider.getTimeOnlyRecording),
+      20 => _buttonItem(_strings.getBattery, provider.getCBC),
+      21 => _buttonItem(_strings.getCapacity, provider.getDeviceCapacity),
+      22 => _buttonItem(_strings.getSn, provider.getSN),
+      23 => _buttonItem(_strings.syncTime, provider.asyncNowTime),
+      24 => _buttonItem(_strings.getGain, provider.getDeviceGain),
+      25 => _buttonItem(_strings.setGain, () => provider.setDeviceGain(3)),
+      26 => _buttonItem(_strings.appState, () => provider.sendAppShowState(2)),
+      27 => _buttonItem(_strings.getVersion, provider.getDeviceVersion),
+      28 => _buttonItem(_strings.fileList, provider.getRecordFileList),
+      29 => _buttonItem(_strings.deleteFile, () async {
         final name = _requireSelectedTransferFile();
         if (name == null) return;
         final confirmed = await _confirmDeleteFiles(fileName: name);
         if (!confirmed || !mounted) return;
         await provider.deleteFile(name);
       }),
-      30 => _buttonItem('⚠️删除所有文件', () async {
+      30 => _buttonItem(_strings.deleteAllFiles, () async {
         final confirmed = await _confirmDeleteFiles();
         if (!confirmed || !mounted) return;
         await provider.deleteAllFile();
       }),
-      31 => _buttonItem('传输文件', () async {
+      31 => _buttonItem(_strings.transferFile, () async {
         final name = _requireSelectedTransferFile();
         if (name == null || _transferStarting) return;
         _transferStarting = true;
@@ -1474,44 +1573,44 @@ class _MyHomePageState extends State<MyHomePage> {
           _transferStarting = false;
         }
       }),
-      32 => _buttonItem('停止传输', () {
+      32 => _buttonItem(_strings.stopTransfer, () {
         final name = _requireSelectedTransferFile();
         if (name != null) {
-          _runDeviceSetting('停止传输', () => provider.stopTransferFile(name));
+          _runDeviceSetting(_strings.stopTransfer, () => provider.stopTransferFile(name));
         }
       }),
-      33 => _buttonItem('▶ 播放传输', () {
-        _playAudio(_transferAudioName, '传输音频');
+      33 => _buttonItem(_strings.playTransfer, () {
+        _playAudio(_transferAudioName, _strings.transferAudio);
       }, enabled: _transferAudioExists),
-      34 => _buttonItem('⏹ 停止播放', _audioPlayer.stop),
-      35 => _buttonItem('返回开始', provider.startBtnBackRecord),
-      36 => _buttonItem('返回暂停', () {}),
-      37 => _buttonItem('返回继续', () {}),
-      38 => _buttonItem('返回停止', () {}),
-      39 => _buttonItem('打开wifi', provider.openWiFi),
+      34 => _buttonItem(_strings.stopPlayback, _audioPlayer.stop),
+      35 => _buttonItem(_strings.returnStart, provider.startBtnBackRecord),
+      36 => _buttonItem(_strings.returnPause, () {}),
+      37 => _buttonItem(_strings.returnResume, () {}),
+      38 => _buttonItem(_strings.returnStop, () {}),
+      39 => _buttonItem(_strings.openWifi, provider.openWiFi),
       40 =>
         [201, 202].contains(provider.deviceType)
-            ? _buttonItem('密码连接', _showWifiPasswordConnectDialog)
+            ? _buttonItem(_strings.passwordConnect, _showWifiPasswordConnectDialog)
             : _buttonItem(
-                '连接(${provider.wifiName})',
+                _strings.connectWifi(provider.wifiName),
                 provider.connectDeviceWiFi,
               ),
-      41 => _buttonItem('关闭wifi', provider.closeWiFi),
-      42 => _buttonItem('wifi断开设备', provider.disconnectDeviceWiFi),
-      43 => _buttonItem('连接状态', provider.getDeviceWiFiState),
-      44 => _buttonItem('手机状态', provider.getWiFiHotspotState),
-      45 => _buttonItem('一键连接WiFi', () {
+      41 => _buttonItem(_strings.closeWifi, provider.closeWiFi),
+      42 => _buttonItem(_strings.disconnectWifi, provider.disconnectDeviceWiFi),
+      43 => _buttonItem(_strings.wifiState, provider.getDeviceWiFiState),
+      44 => _buttonItem(_strings.phoneState, provider.getWiFiHotspotState),
+      45 => _buttonItem(_strings.quickConnectWifi, () {
         _showWifiPasswordConnectDialog(quickConnect: true);
       }),
-      46 => _buttonItem('修改热点密码', _showSetWifiPasswordDialog),
-      47 => _buttonItem('复位设备名', provider.resetDeviceName),
-      48 => _buttonItem('设置直传Wi-Fi', _showSetWifiDirectDialog),
-      49 => _buttonItem('设置上传URL', _showSetRemoteUrlDialog),
-      50 => _buttonItem('复位直传Wi-Fi', provider.resetWifiDirect),
-      51 => _buttonItem('获取直传Wi-Fi', provider.getWifiDirect),
-      52 => _buttonItem('固件升级code', provider.getDeviceVersionCode),
-      53 => _buttonItem('低功耗状态', provider.getDeviceLowPowerRecordMode),
-      54 => _buttonItem('设置低功耗', () {
+      46 => _buttonItem(_strings.setWifiPassword, _showSetWifiPasswordDialog),
+      47 => _buttonItem(_strings.resetDeviceName, provider.resetDeviceName),
+      48 => _buttonItem(_strings.setWifiDirect, _showSetWifiDirectDialog),
+      49 => _buttonItem(_strings.setUploadUrl, _showSetRemoteUrlDialog),
+      50 => _buttonItem(_strings.resetWifiDirect, provider.resetWifiDirect),
+      51 => _buttonItem(_strings.getWifiDirect, provider.getWifiDirect),
+      52 => _buttonItem(_strings.firmwareCode, provider.getDeviceVersionCode),
+      53 => _buttonItem(_strings.getLowPower, provider.getDeviceLowPowerRecordMode),
+      54 => _buttonItem(_strings.setLowPower, () {
         provider.setDeviceLowPowerRecordMode(true);
       }),
       55 => Row(
@@ -1522,14 +1621,14 @@ class _MyHomePageState extends State<MyHomePage> {
               controller: _otaFirmwareNameController,
               readOnly: true,
               style: const TextStyle(fontSize: 11),
-              decoration: _compactInput('固件文件（.ufw）'),
+              decoration: _compactInput(_strings.ufwFirmware),
             ),
           ),
           SizedBox(
             height: 32,
             width: 60,
             child: _buttonItem(
-              '选择固件',
+              _strings.selectFirmware,
               _pickOtaFirmware,
               enabled: !_otaRequestInProgress,
             ),
@@ -1539,36 +1638,41 @@ class _MyHomePageState extends State<MyHomePage> {
       56 => SizedBox(
         height: 32,
         child: _buttonItem(
-          '请求并发送',
+          _strings.requestAndSend,
           _requestAndSendSelectedOtaFirmware,
           enabled: _otaFirmwareFile != null && !_otaRequestInProgress,
         ),
       ),
-      57 => _buttonItem('BK OTA 专属设置', () {
+      57 => _buttonItem(_strings.bkOtaSettings, () {
         _scaffoldKey.currentState?.openEndDrawer();
       }, bgColor: Colors.green),
       63 => _heartbeatSwitch(
-        '设备发送心跳',
+        _strings.deviceHeartbeat,
         provider.deviceHeartbeatEnabled,
         provider.isHeartbeatSettingPending
             ? null
             : (enabled) => _runDeviceSetting(
-                '设备发送心跳',
+                _strings.deviceHeartbeat,
                 () => provider.setHeartbeatDataState(enabled),
               ),
       ),
       64 => _heartbeatSwitch(
-        'App 回复心跳',
+        _strings.appHeartbeat,
         provider.heartbeatReplyEnabled,
         (enabled) => provider.heartbeatReplyEnabled = enabled,
       ),
       65 => SizedBox(
         height: 32,
-        child: _buttonItem('设置传输间隔', _showSetTransferIntervalDialog),
+        child: _buttonItem(_strings.setTransferInterval, _showSetTransferIntervalDialog),
       ),
-      66 => _buttonItem('分享音频', _shareAudio, enabled: !_audioExportInProgress),
+      66 => _buttonItem(_strings.shareAudio, _shareAudio, enabled: !_audioExportInProgress),
       _ => throw ArgumentError.value(id, 'id', '未配置的 Demo 功能编号'),
     };
+  }
+
+  String _audioRateSummary(RecordPenProvider provider, String audioType) {
+    final rates = provider.audioRateLabels(audioType);
+    return _strings.rateSummary(rates.current, rates.minimum, rates.maximum);
   }
 
   Widget _buildAudioRatePanel(RecordPenProvider provider) {
@@ -1586,13 +1690,13 @@ class _MyHomePageState extends State<MyHomePage> {
         children: [
           Row(
             children: [
-              const Text(
-                '音频传输速率',
-                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+              Text(
+                _strings.audioTransferRate,
+                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
               ),
               const Spacer(),
               Text(
-                _useOggStorage ? '是否存储音频' : '是否解码加存储',
+                _useOggStorage ? _strings.storeAudio : _strings.decodeAndStore,
                 style: const TextStyle(fontSize: 11, color: Color(0xFF5D6472)),
               ),
               Transform.scale(
@@ -1613,13 +1717,13 @@ class _MyHomePageState extends State<MyHomePage> {
             ],
           ),
           _audioRateRow(
-            '实时录音',
-            provider.audioRateSummary(AudioDataType.record),
+            _strings.liveRecording,
+            _audioRateSummary(provider, AudioDataType.record),
           ),
-          _audioRateRow('文件传输', provider.audioRateSummary(AudioDataType.file)),
+          _audioRateRow(_strings.fileTransfer, _audioRateSummary(provider, AudioDataType.file)),
           _audioRateRow(
             '',
-            '平均速度 ${provider.audioAverageRateLabel(AudioDataType.file)}',
+            _strings.averageRate(provider.audioAverageRateLabel(AudioDataType.file)),
           ),
         ],
       ),
@@ -1670,6 +1774,7 @@ class _MyHomePageState extends State<MyHomePage> {
       child: Column(
         children: [
           DemoLogHeader(
+            strings: _strings,
             lineCount: _data.length,
             autoScroll: _autoScrollLog,
             onAutoScrollChanged: (enabled) {
@@ -1682,10 +1787,10 @@ class _MyHomePageState extends State<MyHomePage> {
           // 日志内容
           Expanded(
             child: _data.isEmpty
-                ? const Center(
+                ? Center(
                     child: Text(
-                      '暂无日志…',
-                      style: TextStyle(
+                      _strings.emptyLog,
+                      style: const TextStyle(
                         color: Color(0xFF6A6A80),
                         fontSize: 12,
                         fontStyle: FontStyle.italic,
@@ -1729,6 +1834,7 @@ class _MyHomePageState extends State<MyHomePage> {
         line.contains('错误') ||
         line.contains('异常') ||
         line.contains('error') ||
+        line.contains('File size check failed') ||
         (isHeartbeatOrInterval &&
             (line.contains('超时') || line.contains('结果未知')))) {
       return const Color(0xFFFF6B6B);
@@ -1766,7 +1872,7 @@ class _MyHomePageState extends State<MyHomePage> {
             child: Scaffold(
               resizeToAvoidBottomInset: false,
               appBar: AppBar(
-                title: const Text('BK OTA', style: TextStyle(fontSize: 16)),
+                title: Text(_strings.bkOta, style: const TextStyle(fontSize: 16)),
                 automaticallyImplyLeading: false,
                 actions: [
                   IconButton(
@@ -1790,13 +1896,13 @@ class _MyHomePageState extends State<MyHomePage> {
                               controller: _bkFirmwarePathController,
                               readOnly: true,
                               style: const TextStyle(fontSize: 11),
-                              decoration: _compactInput('固件文件（.bin/.rbl）'),
+                              decoration: _compactInput(_strings.bkFirmware),
                             ),
                           ),
                           SizedBox(
                             height: 32,
                             width: 100,
-                            child: _buttonItem('选择固件', () async {
+                            child: _buttonItem(_strings.selectFirmware, () async {
                               try {
                                 final result = await FilePicker.pickFiles(
                                   type: Platform.isIOS
@@ -1815,7 +1921,7 @@ class _MyHomePageState extends State<MyHomePage> {
                                 final pickedName = picked.name.toLowerCase();
                                 if (!pickedName.endsWith('.bin') &&
                                     !pickedName.endsWith('.rbl')) {
-                                  toast('请选择 .bin 或 .rbl 固件文件');
+                                  toast(_strings.selectBkFirmware);
                                   return;
                                 }
                                 File file;
@@ -1833,16 +1939,16 @@ class _MyHomePageState extends State<MyHomePage> {
                                     flush: true,
                                   );
                                 } else {
-                                  throw StateError('无法读取所选文件');
+                                  throw StateError(_strings.unreadableFile);
                                 }
 
                                 setState(() {
                                   _bkFirmwareFile = file;
                                   _bkFirmwarePathController.text = file.path;
                                 });
-                                toast('已选择固件');
+                                toast(_strings.firmwareSelected);
                               } catch (e) {
-                                toast('选择失败: $e');
+                                toast(_strings.selectFailed(e));
                               }
                             }),
                           ),
@@ -1852,7 +1958,7 @@ class _MyHomePageState extends State<MyHomePage> {
                         controller: _bkUpgradeUrlController,
                         readOnly: true,
                         style: const TextStyle(fontSize: 11),
-                        decoration: _compactInput('BK 升级 URL（启动服务后自动填入）'),
+                        decoration: _compactInput(_strings.bkUpgradeUrl),
                       ),
                       GridView.count(
                         padding: EdgeInsets.zero,
@@ -1863,10 +1969,10 @@ class _MyHomePageState extends State<MyHomePage> {
                         mainAxisSpacing: 5,
                         crossAxisSpacing: 5,
                         children: [
-                          _buttonItem('启动HTTP', () async {
+                          _buttonItem(_strings.startHttp, () async {
                             final file = _bkFirmwareFile;
                             if (file == null) {
-                              toast('请先选择固件文件');
+                              toast(_strings.selectFirmwareFirst);
                               return;
                             }
                             try {
@@ -1875,27 +1981,27 @@ class _MyHomePageState extends State<MyHomePage> {
                               setState(() {
                                 _bkUpgradeUrlController.text = url;
                               });
-                              toast('HTTP已启动');
+                              toast(_strings.httpStarted);
                             } catch (e) {
-                              toast('启动失败: $e');
+                              toast(_strings.startFailed(e));
                             }
                           }),
-                          _buttonItem('停止HTTP', () async {
+                          _buttonItem(_strings.stopHttp, () async {
                             try {
                               await _recordPenProvider
                                   .stopBkUpgradeHttpServer();
-                              toast('HTTP已停止');
+                              toast(_strings.httpStopped);
                             } catch (e) {
-                              toast('停止失败: $e');
+                              toast(_strings.stopFailed(e));
                             }
                           }),
-                          _buttonItem('发送升级URL', () async {
+                          _buttonItem(_strings.sendUpgradeUrl, () async {
                             try {
                               var url = _bkUpgradeUrlController.text.trim();
                               if (url.isEmpty) {
                                 final file = _bkFirmwareFile;
                                 if (file == null) {
-                                  toast('请先选择固件并启动HTTP');
+                                  toast(_strings.selectFirmwareStartHttp);
                                   return;
                                 }
                                 url = await _recordPenProvider
@@ -1907,14 +2013,14 @@ class _MyHomePageState extends State<MyHomePage> {
                                 });
                               }
                               await _recordPenProvider.setBKUpgradeHd(url);
-                              toast('已发送升级URL');
+                              toast(_strings.upgradeUrlSent);
                             } catch (e) {
-                              toast('发送失败: $e');
+                              toast(_strings.sendFailed(e));
                             }
                           }),
-                          _buttonItem('BK版本号', () {
+                          _buttonItem(_strings.bkVersion, () {
                             _recordPenProvider.getBKHDVersion();
-                            toast('已请求 BK 版本号');
+                            toast(_strings.bkVersionRequested);
                           }, bgColor: Colors.red),
                         ],
                       ),
@@ -1944,20 +2050,20 @@ class _MyHomePageState extends State<MyHomePage> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(fileName == null ? '确认删除所有文件' : '确认删除文件'),
+        title: Text(fileName == null ? _strings.confirmDeleteAll : _strings.confirmDeleteFile),
         content: Text(
           fileName == null
-              ? '确定删除设备上的所有录音文件吗？删除后无法恢复。'
-              : '确定删除文件“$fileName”吗？删除后无法恢复。',
+              ? _strings.deleteAllWarning
+              : _strings.deleteFileWarning(fileName),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('取消'),
+            child: Text(_strings.cancel),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('确认删除'),
+            child: Text(_strings.delete),
           ),
         ],
       ),
@@ -1969,27 +2075,27 @@ class _MyHomePageState extends State<MyHomePage> {
     final enabled = await showDialog<bool>(
       context: context,
       builder: (context) => SimpleDialog(
-        title: const Text('L09录音：选择麦克风'),
+        title: Text(_strings.selectL09Mic),
         children: [
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             child: FilledButton(
               onPressed: () => Navigator.pop(context, false),
-              child: const Text('数字麦（关闭骨麦）'),
+              child: Text(_strings.digitalMic),
             ),
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             child: FilledButton(
               onPressed: () => Navigator.pop(context, true),
-              child: const Text('骨麦（关闭数字麦）'),
+              child: Text(_strings.boneMic),
             ),
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             child: TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('取消'),
+              child: Text(_strings.cancel),
             ),
           ),
         ],
@@ -2002,9 +2108,9 @@ class _MyHomePageState extends State<MyHomePage> {
   Future<void> _showSetDeviceNameDialog() async {
     final controller = TextEditingController();
     final name = await _showInputDialog(
-      title: '设置设备名',
+      title: _strings.setDeviceName,
       controller: controller,
-      hint: '2-16 位英文或数字',
+      hint: _strings.deviceNameHint,
     );
     if (name == null || name.isEmpty) return;
     await _recordPenProvider.setDeviceName(name);
@@ -2022,31 +2128,31 @@ class _MyHomePageState extends State<MyHomePage> {
     final values = await showDialog<List<String>>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('设置直传 Wi-Fi'),
+        title: Text(_strings.directWifiTitle),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             TextField(
               controller: ssidController,
-              decoration: const InputDecoration(labelText: 'SSID'),
+              decoration: InputDecoration(labelText: _strings.ssid),
             ),
             TextField(
               controller: passwordController,
-              decoration: const InputDecoration(labelText: '密码'),
+              decoration: InputDecoration(labelText: _strings.password),
             ),
           ],
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
+            child: Text(_strings.cancel),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, [
               ssidController.text.trim(),
               passwordController.text,
             ]),
-            child: const Text('确认'),
+            child: Text(_strings.confirm),
           ),
         ],
       ),
@@ -2091,9 +2197,9 @@ class _MyHomePageState extends State<MyHomePage> {
       text: 'https://example.com/audio/upload',
     );
     final url = await _showInputDialog(
-      title: '设置上传 URL',
+      title: _strings.uploadUrlTitle,
       controller: controller,
-      hint: 'https://example.com/audio/upload',
+      hint: _strings.uploadUrlHint,
       keyboardType: TextInputType.url,
     );
     if (url == null || url.isEmpty) return;
@@ -2119,14 +2225,14 @@ class _MyHomePageState extends State<MyHomePage> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
+            child: Text(_strings.cancel),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(
               context,
               trimInput ? controller.text.trim() : controller.text,
             ),
-            child: const Text('确认'),
+            child: Text(_strings.confirm),
           ),
         ],
       ),

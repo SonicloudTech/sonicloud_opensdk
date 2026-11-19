@@ -8,11 +8,12 @@ import 'logger.dart';
 /// App 本地 HTTP 服务，供 BK 设备下载固件。
 /// 固件来自用户通过文件管理选择的本地文件。
 class BkUpgradeHttpServer {
-  BkUpgradeHttpServer._();
+  BkUpgradeHttpServer({int listenPort = port}) : _listenPort = listenPort;
 
-  static final BkUpgradeHttpServer instance = BkUpgradeHttpServer._();
+  static final BkUpgradeHttpServer instance = BkUpgradeHttpServer();
 
   static const int port = 8080;
+  final int _listenPort;
 
   HttpServer? _server;
   File? _firmwareFile;
@@ -45,9 +46,9 @@ class BkUpgradeHttpServer {
       throw StateError('未获取到局域网 IP，请先连接设备 WiFi / 热点');
     }
 
-    _server = await HttpServer.bind(InternetAddress.anyIPv4, port);
+    _server = await HttpServer.bind(InternetAddress.anyIPv4, _listenPort);
     final encodedName = Uri.encodeComponent(_serveFileName);
-    _servingUrl = 'http://$localIp:$port/$encodedName';
+    _servingUrl = 'http://$localIp:${_server!.port}/$encodedName';
     Log.f('BK HTTP 已启动: $_servingUrl  file=${_firmwareFile!.path}');
 
     _server!.listen((request) async {
@@ -66,9 +67,10 @@ class BkUpgradeHttpServer {
   }
 
   Future<void> stop() async {
-    await _server?.close(force: true);
+    final server = _server;
     _server = null;
     _servingUrl = null;
+    await server?.close(force: true);
   }
 
   Future<void> _handleRequest(HttpRequest request) async {
@@ -101,7 +103,7 @@ class BkUpgradeHttpServer {
       request.response.headers.contentLength = bytes.length;
       request.response.headers.set(
         'Content-Disposition',
-        'attachment; filename="$_serveFileName"',
+        "attachment; filename*=UTF-8''${Uri.encodeComponent(_serveFileName)}",
       );
       request.response.add(bytes);
       await request.response.close();
@@ -118,7 +120,7 @@ class BkUpgradeHttpServer {
     final dir = await getTemporaryDirectory();
     final name = p.basename(source.path);
     final safeName = name.isEmpty ? 'update.bin' : name;
-    final dest = File('${dir.path}/bk_fw_$safeName');
+    final dest = File('${dir.path}/bk_fw_${identityHashCode(this)}_$safeName');
     await source.copy(dest.path);
     Log.d('固件已拷贝到缓存: ${source.path} -> ${dest.path} (${await dest.length()} bytes)');
     return dest;
@@ -135,6 +137,9 @@ class BkUpgradeHttpServer {
     for (final iface in interfaces) {
       for (final addr in iface.addresses) {
         if (addr.isLoopback) continue;
+        if (iface.name == 'en0' || iface.name.startsWith('wlan')) {
+          return addr.address;
+        }
         candidates.add(addr.address);
       }
     }

@@ -1,34 +1,43 @@
 import Flutter
 import UIKit
+import Darwin
 
 @main
-@objc class AppDelegate: FlutterAppDelegate {
+@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
     private var fileShareResult: FlutterResult?
 
     override func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
-        GeneratedPluginRegistrant.register(with: self)
-        
-        if let controller = (window?.rootViewController as? FlutterViewController) ??
-            UIApplication.shared.connectedScenes
-            .compactMap({ ($0 as? UIWindowScene)?.windows.first })
-            .first?.rootViewController as? FlutterViewController {
-            
-            let eventChannel = FlutterEventChannel(
-                name: "com.soni.soni_sdk_demo/eventChannel",
-                binaryMessenger: controller.binaryMessenger
-            )
-            eventChannel.setStreamHandler(self)
-        }
-        
-        
-        
-        let channel = FlutterMethodChannel(name: "com.soni.soni_sdk_demo/recordPen", binaryMessenger: self.window?.rootViewController as! FlutterBinaryMessenger)
+        PNode.shared().delegate = self
+        return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+    }
+
+    func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
+        GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+        let messenger = engineBridge.applicationRegistrar.messenger()
+        let eventChannel = FlutterEventChannel(
+            name: "com.soni.soni_sdk_demo/eventChannel",
+            binaryMessenger: messenger
+        )
+        eventChannel.setStreamHandler(self)
+        let channel = FlutterMethodChannel(name: "com.soni.soni_sdk_demo/recordPen", binaryMessenger: messenger)
         channel.setMethodCallHandler { (call: FlutterMethodCall, result: @escaping FlutterResult) -> Void in
             print("iOS原生收到指令\(call.method)    参数：\(call.arguments)");
             switch(call.method) {
+            case "getPhoneInfo":
+                var systemInfo = utsname()
+                uname(&systemInfo)
+                let hardware = ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"] ??
+                    withUnsafeBytes(of: &systemInfo.machine) { bytes in
+                        String(decoding: bytes.prefix { $0 != 0 }, as: UTF8.self)
+                    }
+                result([
+                    "model": "\(UIDevice.current.model)（\(hardware)）",
+                    "systemName": UIDevice.current.systemName,
+                    "systemVersion": UIDevice.current.systemVersion,
+                ])
             case "shareFile":
                 self.shareFile(call, result: result)
             case "connect": // 链接蓝牙
@@ -115,6 +124,15 @@ import UIKit
             case "syncTime"://同步时间
                 PNode.shared().syncTime()
                 result(nil)
+            case "setTimestamp":
+                guard let args = call.arguments as? [String: Any],
+                      let timestamp = args["timestamp"] as? Int64,
+                      timestamp >= 0, timestamp <= Int64(UInt32.max) else {
+                    result(FlutterError(code: "INVALID_TIMESTAMP", message: "时间戳需为 32 位无符号 Unix 秒", details: nil))
+                    return
+                }
+                PNode.shared().setTimestamp(UInt32(timestamp))
+                result(nil)
             case "getRecordFileList"://文件列表
                 PNode.shared().getRecordFileList();
                 result(nil)
@@ -127,9 +145,6 @@ import UIKit
                 PNode.shared().getSn()
                 result(nil)
             case "startGetFile"://传输文件
-                
-                
-                
                 if let args = call.arguments as? [String: Any],let fileName = args["fileName"] as? String {
                     PNode.shared().startGetFile(fileName,"0")
                 } else {
@@ -353,12 +368,6 @@ import UIKit
                 result(nil)
             }
         }
-        
-        
-        
-        PNode.shared().delegate = self
-        
-        return super.application(application, didFinishLaunchingWithOptions: launchOptions)
     }
     
     var eventSink: FlutterEventSink?
@@ -374,6 +383,11 @@ import UIKit
             result(FlutterError(code: "INVALID_SHARE_FILE", message: "分享文件不存在", details: nil))
             return
         }
+        let window = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .filter { $0.activationState == .foregroundActive }
+            .flatMap { $0.windows }
+            .first { $0.isKeyWindow }
         guard var presenter = window?.rootViewController else {
             result(FlutterError(code: "FILE_SHARE_FAILED", message: "无法打开系统分享界面", details: nil))
             return

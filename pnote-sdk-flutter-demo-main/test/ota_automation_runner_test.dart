@@ -97,6 +97,13 @@ void main() {
       report = StringBuffer();
       messenger.setMockMethodCallHandler(channel, (call) async {
         calls.add(call);
+        if (call.method == 'getPhoneInfo') {
+          return {
+            'model': 'iPhone（iPhone15,4）',
+            'systemName': 'iOS',
+            'systemVersion': '27.0',
+          };
+        }
         return null;
       });
       messenger.setMockMethodCallHandler(events, (_) async => null);
@@ -136,7 +143,84 @@ void main() {
     expect(runner.canStart, isFalse);
   });
 
-  automationTest('captures the connected device and starts only for type 48', (
+  automationTest('clearing OTA results removes previous failures and direction', (
+    tester,
+    runner,
+  ) async {
+    await connect(tester);
+    final run = runner.start(attempts: 1, first: first, second: second);
+    await flush(tester, const Duration(seconds: 2));
+    await version(tester, '1.0.1');
+    await emit(tester, {
+      'cmd': 19, 'state': '0', 'data': {'prepareState': 1},
+    });
+    await run;
+    expect(runner.failureCount, 1);
+    expect(
+      report.toString(),
+      contains('） 手机：iPhone（iPhone15,4） · 系统：iOS 27.0\n'),
+    );
+    expect(runner.upgradeDirection, isNotNull);
+    runner.clearResults();
+    expect(runner.completed, 0);
+    expect(runner.failureCount, 0);
+    expect(runner.failureCounts, isEmpty);
+    expect(runner.lastFailure, isNull);
+    expect(runner.upgradeDirection, isNull);
+    expect(runner.status, '等待开始');
+    expect(runner.canStart, isTrue);
+    expect(runner.device?.address, address);
+  });
+
+  automationTest('外贸帮手 SDK type 3 supports the same OTA tests as type 48', (tester, runner) async {
+    await connect(tester, {...device, 'name': '外贸帮手', 'productType': 3});
+    expect(runner.canStart, isTrue);
+    expect(runner.device?.type, 48);
+    final run = runner.start(attempts: 1, first: first, second: second);
+    await flush(tester, const Duration(seconds: 2));
+    await version(tester, '1.0.1');
+    await emit(tester, {'cmd': 19, 'state': 0, 'data': {'prepareState': 1}});
+    await run;
+    expect(runner.completed, 1);
+    expect(runner.failureCount, 1);
+  });
+
+  automationTest('帮课 identity survives OTA reconnect callbacks with a different name', (tester, runner) async {
+    await connect(tester, {...device, 'name': '外贸帮手', 'productType': 3});
+    final run = runner.start(attempts: 1, first: first, second: second);
+    await version(tester, '1.0.0');
+    await approve(tester);
+    await receive(tester);
+    await disconnect(tester);
+    await emit(tester, {'cmd': 1, 'state': 0, 'data': {...device, 'name': 'Soni', 'productType': 3}});
+    await flush(tester, const Duration(seconds: 5));
+    await emit(tester, {'cmd': 2, 'data': {'connect_state': true, 'name': 'Soni', 'address': address}});
+    await flush(tester, const Duration(seconds: 2));
+    await version(tester, '1.0.1');
+    await run;
+    expect(runner.device?.type, 48);
+    expect(runner.canStart, isTrue);
+    expect(runner.failureCount, 0);
+  });
+
+  for (final type in [64, 65, 66]) {
+    automationTest('type $type starts the JieLi OTA automation flow', (tester, runner) async {
+      await connect(tester, {...device, 'productType': type});
+      expect(runner.canStart, isTrue);
+      final run = runner.start(attempts: 1, first: first, second: second);
+      await version(tester, '1.0.0');
+      await approve(tester);
+      expect(sent(), hasLength(1));
+      expect(calls.where((call) => call.method == 'getBKHDVersion'), isEmpty);
+      final interruption = runner.interrupt();
+      await flush(tester);
+      await interruption;
+      await run;
+      expect(runner.failureCount, 0);
+    });
+  }
+
+  automationTest('captures the connected device and requires a supported JieLi model', (
     tester,
     runner,
   ) async {
@@ -342,11 +426,14 @@ void main() {
     await emit(tester, {'cmd': 1, 'state': '0', 'data': device});
     await flush(tester, const Duration(seconds: 5));
     expect(calls.where((call) => call.method == 'connect'), hasLength(1));
+    final closesBeforeInterruption =
+        calls.where((call) => call.method == 'close').length;
     final interruption = runner.interrupt();
     await flush(tester);
     await interruption;
     await run;
-    expect(calls.where((call) => call.method == 'close'), hasLength(1));
+    expect(calls.where((call) => call.method == 'close'),
+        hasLength(closesBeforeInterruption + 1));
     expect(runner.failureCount, 0);
   });
 
@@ -369,7 +456,7 @@ void main() {
     });
     await emit(tester, {'cmd': 1, 'state': '0', 'data': device});
     await flush(tester, const Duration(seconds: 5));
-    await flush(tester, const Duration(seconds: 25));
+    await flush(tester, const Duration(seconds: 55));
     await run;
     release.complete();
     await flush(tester);
@@ -400,7 +487,7 @@ void main() {
     expect(runner.upgradeDirection, isNull);
   });
 
-  automationTest('counts a failure when the device cannot reconnect in 30s', (
+  automationTest('counts a failure when the device cannot reconnect in 60s', (
     tester,
     runner,
   ) async {
@@ -411,7 +498,7 @@ void main() {
     await approve(tester);
     await receive(tester);
     await disconnect(tester);
-    await tester.pump(const Duration(seconds: 29));
+    await tester.pump(const Duration(seconds: 59));
     expect(runner.isRunning, isTrue);
     await flush(tester, const Duration(seconds: 1));
     expect(runner.isRunning, isFalse, reason: runner.status);

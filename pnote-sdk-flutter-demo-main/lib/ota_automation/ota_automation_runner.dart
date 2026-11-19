@@ -1,27 +1,53 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
+import '../device_auth_config.dart';
 import '../provider_record_pen.dart';
+import '../service_bk_http.dart';
 import '../test_report.dart';
 
-typedef OtaTestDevice = ({String name, String address, int? type});
+typedef OtaTestDevice = ({
+  String name,
+  String address,
+  int? type,
+  int? sdkType,
+  String? typeLabel,
+});
 typedef OtaTestFirmware = ({String path, String version});
+
+class _BkAuthenticationError extends StateError {
+  _BkAuthenticationError(super.message);
+}
 
 class OtaAutomationRunner extends ChangeNotifier {
   OtaAutomationRunner(this._provider, {
+    this.isBk = false,
     bool Function()? canStartTest,
     void Function(String)? onReport,
+    Future<String> Function(File)? startBkHttp,
+    Future<void> Function()? stopBkHttp,
   }) : _canStartTest = canStartTest,
+       _startBkHttp = startBkHttp,
+       _stopBkHttp = stopBkHttp,
        _onReport = onReport {
     _provider.addListener(_syncDevice);
     _syncDevice();
   }
 
   static const supportedDeviceType = 48;
-  static const _reconnectTimeout = Duration(seconds: 30);
+  static const supportedJieLiDeviceTypes = {supportedDeviceType, 64, 65, 66};
+  static const supportedBkDeviceTypes = {198, 199, 200, 201, 202};
+  static const _reconnectTimeout = Duration(seconds: 60);
 
   final RecordPenProvider _provider;
+  final bool isBk;
+  final Future<String> Function(File)? _startBkHttp;
+  final Future<void> Function()? _stopBkHttp;
+  late final _bkHttp = BkUpgradeHttpServer(listenPort: 0);
+  Future<String>? _bkHttpStarting;
+  ({String address, int? type, int disconnectCount})? _bkAuthenticatedConnection;
   final bool Function()? _canStartTest;
   final void Function(String)? _onReport;
   OtaTestDevice? _connectedDevice;
@@ -43,8 +69,16 @@ class OtaAutomationRunner extends ChangeNotifier {
   final Map<String, int> _failureCounts = {};
 
   OtaTestDevice? get device => _device;
-  bool get hasSupportedDevice => _connectedDevice?.type == supportedDeviceType;
-  bool get canStart => !_isRunning && hasSupportedDevice &&
+  String get title => isBk ? 'BK OTA自动化测试' : '杰理OTA自动化测试';
+  List<String> get firmwareExtensions => isBk ? const ['bin', 'rbl'] : const ['ufw'];
+  bool _supports(int? type) => isBk
+      ? supportedBkDeviceTypes.contains(type)
+      : supportedJieLiDeviceTypes.contains(type);
+  bool get hasSupportedDevice => _supports(_connectedDevice?.type);
+  bool get hasVisibleDevice => _supports(_device?.type);
+  bool get isBusy => _isRunning || _bkHttpStarting != null;
+  bool get canStart => !_disposed && !isBusy && hasSupportedDevice &&
+      (!isBk || (!_provider.isRecording && !_provider.isFileTransferring)) &&
       (_canStartTest?.call() ?? true);
   bool get isRunning => _isRunning;
   bool get stopRequested => _stopRequested;
@@ -55,6 +89,18 @@ class OtaAutomationRunner extends ChangeNotifier {
   String? get lastFailure => _lastFailure;
   Map<String, int> get failureCounts => Map.unmodifiable(_failureCounts);
 
+  void clearResults() {
+    if (isBusy) throw StateError('请先结束 OTA 测试');
+    _completed = 0;
+    _failureCount = 0;
+    _failureCounts.clear();
+    _lastFailure = null;
+    _upgradeDirection = null;
+    _status = '等待开始';
+    _stopRequested = false;
+    notifyListeners();
+  }
+
   void _syncDevice() {
     final previous = _connectedDevice;
     final info = _provider.isConnected ? _provider.deviceInfo : null;
@@ -62,10 +108,17 @@ class OtaAutomationRunner extends ChangeNotifier {
     final name = info?['name']?.toString() ?? '';
     final current = address.isEmpty || address == 'null' || name.isEmpty
         ? null
-        : (name: name, address: address, type: _provider.deviceType);
+        : (
+            name: name,
+            address: address,
+            type: _provider.deviceType,
+            sdkType: int.tryParse('${info?['sdkProductType'] ?? _provider.deviceType ?? ''}'),
+            typeLabel: _provider.deviceTypeLabel,
+          );
     if (previous == current) return;
 
     _connectedDevice = current;
+    if (current == null) _bkAuthenticatedConnection = null;
     if (previous != null && current == null) _disconnectCount++;
     if (current != null && !_sameAddress(_device?.address, current.address)) {
       _upgradeDirection = null;
@@ -92,9 +145,14 @@ class OtaAutomationRunner extends ChangeNotifier {
     required OtaTestFirmware second,
   }) async {
     if (!canStart) {
-      throw StateError('请先在设备页连接 type $supportedDeviceType 设备');
+      throw StateError(isBk ? '请先连接支持 BK OTA 的设备并停止录音或文件传输'
+          : '请先在设备页连接支持杰理 OTA 的设备');
     }
     if (attempts < 1) throw ArgumentError.value(attempts, 'attempts');
+    if (isBk && (first.version.trim().isEmpty || second.version.trim().isEmpty ||
+        first.version == second.version)) {
+      throw ArgumentError('请填写两个不同的固件版本号');
+    }
     final target = _connectedDevice!;
     _finished = Completer<void>();
     _device = target;
@@ -106,13 +164,15 @@ class OtaAutomationRunner extends ChangeNotifier {
     _lastFailure = null;
     _failureCounts.clear();
     _interrupted = false;
+    _bkAuthenticatedConnection = null;
     var needsFreshConnection = false;
     var initialConnection = true;
-    _onReport?.call('\n\n（${formatTestTimestamp(DateTime.now())}）\n'
-        '设备：${target.type} · ${target.name}\n'
-        '杰理OTA自动化测试 - 重复$attempts次\n');
-
+    final startedAt = DateTime.now();
     try {
+      final header = await formatTestStartHeader(startedAt);
+      _onReport?.call('$header'
+          '设备：${target.typeLabel ?? target.type} · ${target.name}\n'
+          '$title - 重复$attempts次\n');
       while (_completed < attempts) {
         final attempt = _completed + 1;
         var round = '第 $attempt/$attempts 次';
@@ -127,10 +187,16 @@ class OtaAutomationRunner extends ChangeNotifier {
             await _reconnect(target, disconnectFirst: needsFreshConnection);
             needsFreshConnection = false;
           } else if (initialConnection) {
+            if (isBk) await _ensureBkAuthentication(target);
             _setStatus('$round · 等待设备连接稳定');
             await _wait(target, const Duration(seconds: 2));
           }
           initialConnection = false;
+          if (isBk) {
+            await _ensureBkAuthentication(target);
+            _setStatus('$round · 检查并连接设备 Wi-Fi');
+            await _ensureWifi(target);
+          }
           _setStatus('$round · 读取当前固件版本');
           final current = await _readVersion(target);
           final useFirst = current != first.version;
@@ -154,21 +220,30 @@ class OtaAutomationRunner extends ChangeNotifier {
             );
           }
 
-          try {
-            await send();
-          } on OtaPreparationError catch (error) {
-            if (error.prepareState != '2') rethrow;
-            _setStatus('$round · 等待 Wi-Fi 连接');
-            await _ensureWifi(target);
-            await send();
-          }
-          _setStatus('$round · 重连设备（30 秒内）');
-          await _reconnect(target, afterDisconnect: disconnectCount);
-          needsFreshConnection = false;
-          _setStatus('$round · 校验固件版本');
-          final actual = await _readVersion(target);
-          if (actual != firmware.version) {
-            throw StateError('版本不一致，预期 ${firmware.version}，实际 $actual');
+          if (isBk) {
+            _setStatus('$round · 启动 HTTP 并发送 BK 升级 URL');
+            await _sendBkFirmware(target, firmware,
+                onSend: () => needsFreshConnection = true);
+            _setStatus('$round · 等待设备重启并校验 BK 版本');
+            await _verifyBkVersion(target, firmware.version);
+            needsFreshConnection = false;
+          } else {
+            try {
+              await send();
+            } on OtaPreparationError catch (error) {
+              if (error.prepareState != '2') rethrow;
+              _setStatus('$round · 等待 Wi-Fi 连接');
+              await _ensureWifi(target);
+              await send();
+            }
+            _setStatus('$round · 重连设备（60 秒内）');
+            await _reconnect(target, afterDisconnect: disconnectCount);
+            needsFreshConnection = false;
+            _setStatus('$round · 校验固件版本');
+            final actual = await _readVersion(target);
+            if (actual != firmware.version) {
+              throw StateError('版本不一致，预期 ${firmware.version}，实际 $actual');
+            }
           }
         } catch (error) {
           outcome = _disposed || _interrupted ? '中断' : '失败';
@@ -181,6 +256,7 @@ class OtaAutomationRunner extends ChangeNotifier {
           _lastFailure =
               '$round · ${error is StateError ? error.message : error}';
         } finally {
+          if (isBk) await _stopBkServer();
           elapsed.stop();
           _onReport?.call('$attempt/$attempts 结果：$outcome'
               '${failure == null ? "" : " 失败原因：$failure"}'
@@ -189,7 +265,7 @@ class OtaAutomationRunner extends ChangeNotifier {
         }
         if (_disposed) return;
         _completed = attempt;
-        if (_stopRequested || _targetChanged) break;
+        if (_stopRequested || _targetChanged || _bkHttpStarting != null) break;
       }
     } finally {
       _isRunning = false;
@@ -214,7 +290,11 @@ class OtaAutomationRunner extends ChangeNotifier {
 
   Future<void> _cancelCurrentOperation() async {
     final reconnecting = _reconnecting;
-    await _provider.cancelOtaTransfer();
+    if (isBk) {
+      await _stopBkServer();
+    } else {
+      await _provider.cancelOtaTransfer();
+    }
     if (reconnecting) await _provider.closeConnect();
   }
 
@@ -337,6 +417,183 @@ class OtaAutomationRunner extends ChangeNotifier {
     }
   }
 
+  String? _bkType(Map<String, dynamic> event) {
+    if (!const {'40', '41'}.contains(event['cmd']?.toString())) return null;
+    final type = _eventData(event)?['type'];
+    if (type == null) return null;
+    // Android reports command 0x0A as decimal string "10"; iOS uses "0A".
+    if (type.toString().trim() == '10') return '0A';
+    return (type is int ? type.toRadixString(16) : type.toString())
+        .trim().toUpperCase().padLeft(2, '0');
+  }
+
+  bool _bkSucceeded(dynamic value) => int.tryParse('$value'.trim()) == 0;
+
+  Future<void> _stopBkServer() async {
+    try {
+      if (_stopBkHttp != null) {
+        await _stopBkHttp();
+      } else {
+        await _bkHttp.stop();
+      }
+    } catch (error) {
+      _onReport?.call('BK HTTP服务停止失败：$error\n');
+    }
+  }
+
+  Future<void> _sendBkFirmware(
+    OtaTestDevice target,
+    OtaTestFirmware firmware, {
+    required VoidCallback onSend,
+  }) async {
+    _requireConnection(target);
+    var active = true;
+    var sent = false;
+    var progress = -1;
+    Timer? timeout;
+    void resetTimeout(Duration duration, String message) {
+      timeout?.cancel();
+      timeout = Timer(duration, () {
+        if (active) _cancelPending?.call(TimeoutException(message));
+      });
+    }
+    try {
+      resetTimeout(RecordPenProvider.otaResultTimeout, '等待 BK 固件下载超时');
+      final result = await _exchange(
+        action: () async {
+          final starting = _startBkHttp != null
+              ? _startBkHttp(File(firmware.path))
+              : _bkHttp.start(firmwareFile: File(firmware.path));
+          _bkHttpStarting = starting;
+          try {
+            final url = await starting;
+            if (!active || _disposed || _interrupted || _targetChanged) {
+              await _stopBkServer();
+              return;
+            }
+            _requireConnection(target);
+            sent = true;
+            onSend();
+            await _provider.setBKUpgradeHd(url);
+          } finally {
+            if (identical(_bkHttpStarting, starting)) _bkHttpStarting = null;
+            if (!_disposed) notifyListeners();
+          }
+        },
+        accepts: (event) {
+          if (!sent) return false;
+          final data = _eventData(event);
+          if (event['cmd']?.toString() == '2' &&
+              const {'0', 'false'}.contains(data?['connect_state']?.toString())) {
+            return true;
+          }
+          final type = _bkType(event);
+          if (!const {'08', '09', '0A'}.contains(type)) return false;
+          if (event['state']?.toString() != '0') return true;
+          if (type == '09') {
+            final next = int.tryParse('${data?['value']}');
+            if (next != null && next >= 0 && next <= 100 && next > progress) {
+              progress = next;
+              _setStatus('BK 固件下载 $progress%');
+              resetTimeout(
+                progress == 100 ? const Duration(seconds: 20) : RecordPenProvider.otaResultTimeout,
+                progress == 100 ? '文件验证超时' : '等待 BK 固件下载超时',
+              );
+            }
+          }
+          return type == '0A' || (type == '08' && !_bkSucceeded(data?['value']));
+        },
+      );
+      final type = _bkType(result);
+      if (result['cmd']?.toString() == '2') throw StateError('固件下载期间蓝牙断开');
+      if (type == '08') throw StateError('BK 升级 URL 设置失败');
+      if (type != '0A' || result['state']?.toString() != '0' ||
+          !_bkSucceeded(_eventData(result)?['value'])) {
+        throw StateError('BK 固件文件验证失败');
+      }
+    } finally {
+      active = false;
+      timeout?.cancel();
+    }
+  }
+
+  Future<void> _ensureBkAuthentication(OtaTestDevice target) async {
+    final key = deviceAuthKeys[target.type];
+    if (!isBk || key == null) return;
+    _requireConnection(target);
+    final connection = (
+      address: target.address.toLowerCase(),
+      type: target.type,
+      disconnectCount: _disconnectCount,
+    );
+    if (_bkAuthenticatedConnection == connection) return;
+    _setStatus('使用默认 AuthKey 认证');
+    void checkConnection() {
+      if (_disconnectCount != connection.disconnectCount || !_isConnectedTo(target)) {
+        _cancelPending?.call(StateError('认证期间蓝牙连接已断开'));
+      }
+    }
+    _provider.addListener(checkConnection);
+    try {
+      final response = await _exchange(
+        action: () async {
+          _requireConnection(target);
+          await _provider.authkeyConnect(key);
+        },
+        accepts: (event) => event['cmd']?.toString() == '31',
+        timeout: const Duration(seconds: 10),
+        timeoutMessage: '默认 AuthKey 认证超时',
+      );
+      _requireConnection(target);
+      if (_disconnectCount != connection.disconnectCount) {
+        throw StateError('认证期间蓝牙连接已断开');
+      }
+      final result = _eventData(response)?['authkey_state'];
+      if (response['state']?.toString() != '0' || int.tryParse('$result') != 0) {
+        throw _BkAuthenticationError('默认 AuthKey 认证失败（状态 ${response['state']}，结果 ${result ?? "未知"}）');
+      }
+      _bkAuthenticatedConnection = connection;
+    } catch (error) {
+      _requireConnection(target);
+      if (_disconnectCount != connection.disconnectCount) {
+        throw StateError('认证期间蓝牙连接已断开');
+      }
+      if (error is _BkAuthenticationError) rethrow;
+      throw _BkAuthenticationError(error is TimeoutException
+          ? '默认 AuthKey 认证超时'
+          : '默认 AuthKey 认证失败：$error');
+    } finally {
+      _provider.removeListener(checkConnection);
+    }
+  }
+
+  Future<void> _verifyBkVersion(OtaTestDevice target, String expected) async {
+    var expired = false;
+    final timer = Timer(const Duration(seconds: 60), () {
+      expired = true;
+      _cancelPending?.call(TimeoutException('校验固件版本超时'));
+    });
+    try {
+      while (!expired) {
+        _checkActive();
+        try {
+          if (!_isConnectedTo(target)) await _reconnect(target);
+          await _wait(target, const Duration(seconds: 2));
+          if (await _readVersion(target) == expected) return;
+        } on _BkAuthenticationError {
+          rethrow;
+        } catch (_) {
+          _checkActive();
+          // BK may restart only its Wi-Fi module; poll the version over the
+          // existing Bluetooth link, or reconnect if Bluetooth also restarts.
+        }
+      }
+      throw TimeoutException('校验固件版本超时，预期 $expected');
+    } finally {
+      timer.cancel();
+    }
+  }
+
   Future<void> _reconnect(
     OtaTestDevice target, {
     int? afterDisconnect,
@@ -404,7 +661,8 @@ class OtaAutomationRunner extends ChangeNotifier {
           await _provider.connect({
             'name': name.isEmpty ? target.name : name,
             'address': address,
-            'productType': target.type,
+            'productType': target.sdkType ?? target.type,
+            'deviceTypeLabel': target.typeLabel,
           });
         } catch (error) {
           if (!result.isCompleted) result.completeError(error);
@@ -418,7 +676,7 @@ class OtaAutomationRunner extends ChangeNotifier {
     try {
       final wait = result.future.timeout(
         _reconnectTimeout,
-        onTimeout: () => throw StateError('30 秒内未能重新连接测试设备'),
+        onTimeout: () => throw StateError('60 秒内未能重新连接测试设备'),
       );
       if (disconnectFirst && _disconnectCount == requiredDisconnect) {
         unawaited(_provider.closeConnect());
@@ -436,21 +694,27 @@ class OtaAutomationRunner extends ChangeNotifier {
         await _provider.stopSearch();
       }
     }
+    if (isBk) await _ensureBkAuthentication(target);
     await _wait(target, const Duration(seconds: 2));
   }
 
   Future<String> _readVersion(OtaTestDevice target) async {
+    if (isBk) await _ensureBkAuthentication(target);
     final disconnectCount = _disconnectCount;
     final result = await _exchange(
       action: () async {
         _requireConnection(target);
-        await _provider.getDeviceVersion();
+        if (isBk) {
+          await _provider.getBKHDVersion();
+        } else {
+          await _provider.getDeviceVersion();
+        }
       },
-      accepts: (event) => event['cmd']?.toString() == '17',
+      accepts: (event) => isBk ? _bkType(event) == '01' : event['cmd']?.toString() == '17',
       timeout: const Duration(seconds: 5),
       timeoutMessage: '读取固件版本超时',
     );
-    final actual = _eventData(result)?['version']?.toString().trim();
+    final actual = _eventData(result)?[isBk ? 'value' : 'version']?.toString().trim();
     if (_disconnectCount != disconnectCount ||
         !_isConnectedTo(target) ||
         result['state']?.toString() != '0' ||

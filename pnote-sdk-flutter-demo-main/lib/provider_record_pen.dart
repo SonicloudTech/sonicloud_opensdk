@@ -13,6 +13,7 @@ import 'package:soni_sdk_demo/service_system_ability.dart';
 import 'package:wifi_iot/wifi_iot.dart';
 
 import 'logger.dart';
+import 'file_transfer_size_check.dart';
 
 ///
 /// @author 杰森明
@@ -33,14 +34,17 @@ class RecordFileInfo {
   final String name;
   final int sizeBytes;
   final int durationSec;
+  final bool sizeKnown;
 
   RecordFileInfo({
     required this.name,
     required this.sizeBytes,
     required this.durationSec,
+    this.sizeKnown = true,
   });
 
-  String get sizeKbLabel => '${(sizeBytes / 1024).toStringAsFixed(1)}kb';
+  String get sizeKbLabel =>
+      sizeKnown ? '${(sizeBytes / 1024).toStringAsFixed(1)}kb' : '--';
 
   String get durationMinLabel => '${(durationSec / 60).toStringAsFixed(1)}min';
 
@@ -133,6 +137,7 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
   static const otaResultTimeout = Duration(minutes: 5);
   static const _otaVerificationTimeout = Duration(seconds: 20);
   static const otaTransferErrorKey = 'otaTransferError';
+  static const fileTransferSizeKey = 'fileTransferSizeCheck';
   bool _otaRequestPending = false;
   Completer<Never>? _otaRequestCancellation;
   Timer? _otaTransferTimer;
@@ -158,6 +163,8 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
     AudioDataType.file: _AudioRateStats(),
   };
   int _transferPacketNumber = 0;
+  String? _sizeCheckFile;
+  int? _sizeCheckExpectedBytes;
 
   bool _audioDecodeAndStoreEnabled = true;
 
@@ -252,10 +259,18 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
     '${_deviceInfo?['productType'] ?? _deviceInfo?['type'] ?? ''}',
   );
 
+  String? get deviceTypeLabel =>
+      _deviceInfo?['deviceTypeLabel']?.toString() ?? deviceType?.toString();
+
+  bool get isBangkeDevice => _deviceInfo?['deviceTypeLabel'] == '帮课';
+
   String deviceName = "";
   String deviceAddress = "";
 
   final List<Map<String, String>> _discoveredDevices = [];
+  bool _scanResultsEnabled = true;
+  bool _disconnectRequested = false;
+  int _connectionGeneration = 0;
 
   List<Map<String, String>> get discoveredDevices =>
       List.unmodifiable(_discoveredDevices);
@@ -362,6 +377,9 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
         .record(data.length);
     if (updated) notifyListeners();
     if (!_audioDecodeAndStoreEnabled) return;
+    if (data.isNotEmpty) {
+      streamController.add({'audioType': audioType, 'rawAudio': data});
+    }
     for (final item in _splitData(data)) {
       streamController.add({"audioType": audioType, "audio": item});
     }
@@ -374,6 +392,17 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   String audioRateSummary(String audioType) =>
       _audioRateStats.putIfAbsent(audioType, _AudioRateStats.new).summary;
+
+  ({String current, String minimum, String maximum}) audioRateLabels(
+    String audioType,
+  ) {
+    final stats = _audioRateStats.putIfAbsent(audioType, _AudioRateStats.new);
+    return (
+      current: stats.currentLabel,
+      minimum: stats.minLabel,
+      maximum: stats.maxLabel,
+    );
+  }
 
   String audioAverageRateLabel(String audioType) =>
       _audioRateStats.putIfAbsent(audioType, _AudioRateStats.new).averageLabel;
@@ -527,6 +556,14 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
           final lowPowerState = data['low_power_state']?.toString() ?? "0";
           break;
         case "31":
+          final authData = map['data'];
+          if (_isConnected &&
+              map['state']?.toString() == '0' &&
+              authData is Map &&
+              authData['authkey_state']?.toString() == '0') {
+            await _sendBeijingTimestamp();
+          }
+          break;
         case "32":
         case "33":
         case "34":
@@ -660,6 +697,7 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   /// 处理设备搜索 (cmd=1)
   void _handleDeviceSearchEvent(Map<String, dynamic> map) {
+    if (!_scanResultsEnabled) return;
     if (map['state']?.toString() != "0") return;
 
     final name = map['data']['name']?.toString() ?? '';
@@ -759,24 +797,29 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
         final savedDevice = saved ? deviceMap : null;
         final previous = _connectedDeviceKey == deviceKey ? _deviceInfo : null;
         final data = Map<String, dynamic>.from(map['data'] as Map);
-        // 连接回调的名称可能与扫描名称不同，外贸版暂按类型 40 处理。
+        // 连接回调的名称可能与扫描名称不同，保留扫描和已选设备的型号信息。
         final scannedName = scanned['name'] ?? savedDevice?['name']?.toString();
-        final isExportDevice =
-            deviceName.contains('外贸') || scannedName?.contains('外贸') == true;
+        final productType = data['productType'] ??
+            data['type'] ??
+            scanned['productType'] ??
+            savedDevice?['sdkProductType'] ??
+            savedDevice?['productType'] ??
+            savedDevice?['type'] ??
+            previous?['sdkProductType'] ??
+            previous?['productType'];
+        final isBangkeDevice = deviceName.contains('外贸帮手') ||
+            scannedName?.contains('外贸帮手') == true ||
+            savedDevice?['deviceTypeLabel'] == '帮课' ||
+            previous?['deviceTypeLabel'] == '帮课';
         _deviceInfo = {
           ...?previous,
           ...?savedDevice,
           ...scanned,
           ...data,
           'address': address,
-          'productType': isExportDevice
-              ? 40
-              : data['productType'] ??
-                    data['type'] ??
-                    scanned['productType'] ??
-                    savedDevice?['productType'] ??
-                    savedDevice?['type'] ??
-                    previous?['productType'],
+          'productType': isBangkeDevice ? 48 : productType,
+          'sdkProductType': isBangkeDevice ? productType : null,
+          'deviceTypeLabel': isBangkeDevice ? '帮课' : null,
         };
         // 同一连接的重复成功通知不重复初始化，也不清空文件列表。
         if (_isConnected && _connectedDeviceKey == deviceKey) {
@@ -784,9 +827,12 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
           return;
         }
         _resetDeviceHeartbeat();
+        _sizeCheckFile = null;
         _isFileTransferring = false;
         _connectedDeviceKey = deviceKey;
         _isConnected = true;
+        _disconnectRequested = false;
+        final generation = ++_connectionGeneration;
 
         _isAutoConnecting = true;
         stopSearch();
@@ -795,22 +841,19 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
 
         // 连接成功后
         await ServiceSystemAbility.sleep(2000);
-        asyncNowTime();
-        await ServiceSystemAbility.sleep(50);
+        if (!_isConnected || generation != _connectionGeneration) return;
         getCBC();
         await ServiceSystemAbility.sleep(50);
+        if (!_isConnected || generation != _connectionGeneration) return;
         getSN();
         // // ⚠️⚠️⚠️⚠️⚠️紧接着开始获取传输文件，传输蓝牙大概率断，所以需要延时3秒才可以
         // await ServiceSystemAbility.sleep(3000);
         // getRecordFileList();
       }
-    } else if (map['data']['address'] == "null") {
-      _resetDeviceHeartbeat();
-      _isConnected = false;
-      _connectedDeviceKey = null;
-      _deviceInfo = null;
     } else {
-      closeSuccess();
+      if (_isConnected || deviceMap != null || _disconnectRequested) {
+        closeSuccess();
+      }
     }
     notifyListeners();
   }
@@ -844,11 +887,13 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
       if (item is! Map) continue;
       final name = item['name']?.toString() ?? '';
       if (name.isEmpty || _recordFiles.any((e) => e.name == name)) continue;
+      final size = int.tryParse(item['size']?.toString() ?? '');
       _recordFiles.add(
         RecordFileInfo(
           name: name,
-          sizeBytes: _toInt(item['size']),
+          sizeBytes: size ?? 0,
           durationSec: _toInt(item['time']),
+          sizeKnown: size != null && size >= 0,
         ),
       );
     }
@@ -878,6 +923,22 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> _handleTransferProgressEvent(Map<String, dynamic> map) async {
     /// 0完成，4传输中，1文件不在，2offset过大（预留），3其他停止
     final String fileState = map['data']['record_file_state'].toString();
+    final validEnvelope = map['state'] == null || map['state']?.toString() == '0';
+    final name = map['data']['name']?.toString();
+    if (_sizeCheckFile != null &&
+        (name == null || name.isEmpty || name == _sizeCheckFile)) {
+      if (fileState == '0' && validEnvelope) {
+        final check = FileTransferSizeCheck(
+          fileName: _sizeCheckFile!,
+          receivedBytes: audioReceivedBytes(AudioDataType.file),
+          expectedBytes: _sizeCheckExpectedBytes,
+        );
+        streamController.add({fileTransferSizeKey: check});
+        _sizeCheckFile = null;
+      } else if (const {'1', '2', '3'}.contains(fileState) || !validEnvelope) {
+        _sizeCheckFile = null;
+      }
+    }
     if (const {'0', '1', '2', '3'}.contains(fileState) ||
         (map['state'] != null && map['state']?.toString() != '0')) {
       _isFileTransferring = false;
@@ -916,8 +977,8 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   /// 处理电量 (cmd=6)
   void _handleBatteryEvent(Map<String, dynamic> map) {
+    if (!_isConnected) return;
     _cbc = map['data']['cbc']?.toString() ?? '-1';
-    _isConnected = true;
     notifyListeners();
   }
 
@@ -1020,6 +1081,7 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   /// 搜索
   startSearch() async {
+    _scanResultsEnabled = true;
     _discoveredDevices.clear();
     deviceName = '';
     deviceAddress = '';
@@ -1031,6 +1093,7 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
   connect(Map<String, dynamic> device) async {
     print("链接设备name=${device["name"]} address=${device["address"]}");
     deviceMap = device;
+    _disconnectRequested = false;
     await _bluetoothService.connect(device);
   }
 
@@ -1064,26 +1127,38 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
   /// 断开连接成功
   closeSuccess() async {
     Log.d("☹️断开了");
+    final stopSdkConnection =
+        (_isConnected || deviceMap != null) && !_disconnectRequested;
+    _connectionGeneration++;
+    _scanResultsEnabled = false;
+    _disconnectRequested = false;
     _resetDeviceHeartbeat();
     _isConnected = false;
     _connectedDeviceKey = null;
     _deviceInfo = null;
     _isRecording = false;
     _cbc = "-1";
+    _sizeCheckFile = null;
     _isFileTransferring = false;
     _sn = "00000000";
+    _discoveredDevices.clear();
+    deviceMap = null;
+    deviceName = '';
+    deviceAddress = '';
+    _isAutoConnecting = false;
+    // 异常断开后 SDK 会自行扫描；使用手动断开的收尾取消 SDK 重连。
+    // 先下发停止，再通知 OTA 等监听方，避免取消它们随后发起的主动搜索。
+    if (stopSdkConnection) unawaited(_bluetoothService.disconnect());
+    unawaited(_bluetoothService.stopSearch());
     _clearRecordFileList();
 
     notifyListeners();
-    Future.delayed(const Duration(seconds: 5), () {
-      if (!_isAutoConnecting) return;
-      startSearch();
-    });
   }
 
   //准备断开连接
   closeConnect() async {
     Log.d("准备断开连接");
+    _disconnectRequested = true;
     await _bluetoothService.disconnect();
   }
 
@@ -1133,6 +1208,7 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   /// 停止扫描
   stopSearch() async {
+    _scanResultsEnabled = false;
     await _bluetoothService.stopSearch();
   }
 
@@ -1154,9 +1230,21 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
     await _bluetoothService.getSN();
   }
 
-  /// 给设备下发当前时间
+  /// 手动下发时间：201、202 使用时间戳，其他设备使用原接口。
   Future<void> asyncNowTime() async {
-    await _bluetoothService.syncTime();
+    if (deviceType == 201 || deviceType == 202) {
+      await _sendBeijingTimestamp();
+    } else {
+      await _bluetoothService.syncTime();
+    }
+  }
+
+  /// SDK 原样发送时间值，Demo 固定按 UTC+8 换算为北京时间。
+  Future<void> _sendBeijingTimestamp() async {
+    final beijingTime = DateTime.now().toUtc().add(const Duration(hours: 8));
+    await _bluetoothService.setTimestamp(
+      beijingTime.millisecondsSinceEpoch ~/ 1000,
+    );
   }
 
   /// 获取录音笔正在录音中时候的录音文件名称
@@ -1170,12 +1258,22 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
     int offset,
   ) async {
     _transferPacketNumber = 0;
+    _sizeCheckFile = fileName;
+    _sizeCheckExpectedBytes = null;
+    for (final file in _recordFiles) {
+      if (file.name == fileName && file.sizeKnown &&
+          offset >= 0 && offset <= file.sizeBytes) {
+        _sizeCheckExpectedBytes = file.sizeBytes - offset;
+        break;
+      }
+    }
     resetAudioRate(AudioDataType.file);
     _isFileTransferring = true;
     notifyListeners();
     try {
       await _recordService.sendFileFromPenToPhoneWithOffset(fileName, offset);
     } catch (_) {
+      _sizeCheckFile = null;
       _isFileTransferring = false;
       notifyListeners();
       rethrow;

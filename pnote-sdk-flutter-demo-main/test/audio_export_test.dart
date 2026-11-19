@@ -86,4 +86,21 @@ void main() {
     expect(await snapshot.exists(), isFalse);
     expect(await source.exists(), isTrue);
   });
+
+  test('raw Opus sharing preserves bytes in a binary file snapshot', () async {
+    final directory = await Directory.systemTemp.createTemp('soni-raw-share-');
+    addTearDown(() => directory.delete(recursive: true));
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    final source = await File('${directory.path}/record_raw.opus')
+        .writeAsBytes([0xf8, 0xff, 0xfe]);
+    expect(await AudioFileExporter.isSaved(source), isTrue);
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      expect(call.arguments['mimeType'], 'application/octet-stream');
+      final snapshot = File(call.arguments['path'] as String);
+      expect(snapshot.uri.pathSegments.last, 'record_raw.opus');
+      expect(await snapshot.readAsBytes(), [0xf8, 0xff, 0xfe]);
+      return true;
+    });
+    expect(await FileSharer.share(source, directory), isTrue);
+  });
 }

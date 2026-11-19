@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import 'device_localizations.dart';
 import 'provider_record_pen.dart';
 
 // 编号及行顺序对应 Demo功能列表.md，新增型号只需维护此配置。
@@ -22,10 +23,16 @@ const _cb08OtaRows = [
   [44, 45, 52, 53, 54],
   [55, 56],
 ];
-const _cb08HeartbeatRows = [
-  ..._cb08OtaRows,
+const _heartbeatOtaRows = [
+  _wifiRow,
+  [44, 45, 52, 53, 54],
   [63, 64, 65],
+  [55, 56],
 ];
+const _bangkeLayout = (
+  name: '外贸帮手',
+  rows: _heartbeatOtaRows,
+);
 const _deviceLayouts = <int, ({String name, List<List<int>> rows})>{
   1: (
     name: 'CB08',
@@ -44,8 +51,10 @@ const _deviceLayouts = <int, ({String name, List<List<int>> rows})>{
     ],
   ),
   8: (name: 'CB08', rows: _cb08OtaRows),
-  40: (name: 'CB08', rows: _cb08HeartbeatRows),
-  48: (name: 'CB08（新版7911）', rows: _cb08OtaRows),
+  48: (name: 'JL01（新版7911）', rows: _cb08OtaRows),
+  64: (name: 'JL02（爱国者7012）', rows: _heartbeatOtaRows),
+  65: (name: 'JL02（爱国者 7012）', rows: _heartbeatOtaRows),
+  66: (name: 'JL02（AOC 7012）', rows: _heartbeatOtaRows),
   198: (
     name: 'C08-FB',
     rows: [
@@ -89,12 +98,14 @@ const _deviceLayouts = <int, ({String name, List<List<int>> rows})>{
 };
 
 class DemoFunctionPanel extends StatelessWidget {
+  final DeviceLocalizations strings;
   final Widget fileSelector;
   final Widget deviceSelector;
   final Widget Function(int id) functionBuilder;
 
   const DemoFunctionPanel({
     super.key,
+    this.strings = const DeviceLocalizations(),
     required this.fileSelector,
     required this.deviceSelector,
     required this.functionBuilder,
@@ -104,7 +115,10 @@ class DemoFunctionPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final provider = context.watch<RecordPenProvider>();
     final layout = provider.isConnected && provider.deviceInfo != null
-        ? _deviceLayouts[provider.deviceType] ?? (name: '其他', rows: _otaRows)
+        ? provider.isBangkeDevice
+              ? _bangkeLayout
+              : _deviceLayouts[provider.deviceType] ??
+              (name: strings.other, rows: _otaRows)
         : null;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -121,8 +135,10 @@ class DemoFunctionPanel extends StatelessWidget {
               runSpacing: 4,
               children: [
                 for (final label in [
-                  provider.deviceType?.toString() ?? '未知',
-                  layout.name,
+                  provider.deviceTypeLabel ?? strings.unknown,
+                  provider.isBangkeDevice
+                      ? layout.name
+                      : strings.deviceModelName(provider.deviceType, layout.name),
                   provider.deviceInfo?['name']?.toString() ?? '',
                 ])
                   Text(

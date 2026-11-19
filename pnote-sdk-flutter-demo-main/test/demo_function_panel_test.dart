@@ -133,14 +133,18 @@ void main() {
   }
 
   const cb08 = [39, 40, 42, 41, 43, 44, 45, 52, 53, 54, 55, 56];
+  const bangke = [39, 40, 42, 41, 43, 44, 45, 52, 53, 54, 63, 64, 65, 55, 56];
   const devices = {
     1: ('CB08', [35, 36, 37, 38, 26, 18, 19, 53, 54]),
     3: ('CB08', cb08),
     4: ('CB08', cb08),
     5: ('D10', [48, 51, 50, 49, 5, 47]),
     8: ('CB08', cb08),
-    40: ('CB08', [...cb08, 63, 64, 65]),
-    48: ('CB08（新版7911）', [...cb08]),
+    40: ('其他', [39, 40, 42, 41, 43, 44, 45, 52, 55, 56]),
+    48: ('JL01（新版7911）', [...cb08]),
+    64: ('JL02（爱国者7012）', bangke),
+    65: ('JL02（爱国者 7012）', bangke),
+    66: ('JL02（AOC 7012）', bangke),
     198: ('C08-FB', [39, 40, 42, 41, 43, 5, 47, 57]),
     199: ('C08-DX', [39, 40, 42, 41, 43, 44, 45, 5, 47, 6, 57]),
     200: ('C08-AI', [39, 40, 42, 41, 43, 44, 45, 57]),
@@ -194,7 +198,81 @@ void main() {
     });
   }
 
-  panelTest('外贸 in the scanned name overrides the reported device type', (
+  for (final sdkType in [3, '3', 4, 48, null]) {
+    panelTest('外贸帮手 with SDK type $sdkType uses the documented 帮课 layout', (tester, provider) async {
+      await emit(tester, {
+        'cmd': 2,
+        'data': {'connect_state': true, 'name': 'Soni外贸帮手Pro', 'address': 'bangke', 'productType': sdkType},
+      });
+      expect(find.text('帮课'), findsOneWidget);
+      expect(find.text('外贸帮手'), findsOneWidget);
+      expect(visibleFunctions(tester), [...common, ...bangke]);
+      expect(provider.deviceType, 48);
+      expect(deviceTitle(40), findsNothing);
+      await emit(tester, {
+        'cmd': 2,
+        'data': {'connect_state': false, 'address': 'bangke'},
+      });
+      expect(find.text('帮课'), findsNothing);
+      expect(visibleFunctions(tester), common);
+    });
+  }
+
+  panelTest('外贸帮手 scan identity survives renamed callbacks and reconnect metadata', (tester, provider) async {
+    await emit(tester, {
+      'cmd': 1, 'state': 0,
+      'data': {'name': '外贸帮手', 'address': 'bangke', 'type': 3},
+    });
+    await provider.connect(provider.discoveredDevices.single);
+    await emit(tester, {
+      'cmd': 2,
+      'data': {'connect_state': '1', 'name': 'Soni', 'address': 'bangke'},
+    });
+    expect(find.text('帮课'), findsOneWidget);
+    expect(find.text('外贸帮手'), findsOneWidget);
+    expect(visibleFunctions(tester), [...common, ...bangke]);
+    final saved = Map<String, dynamic>.from(provider.deviceInfo!);
+    await emit(tester, {
+      'cmd': 2,
+      'data': {'connect_state': false, 'address': ''},
+    });
+    await provider.connect(saved);
+    for (var callback = 0; callback < 2; callback++) {
+      await emit(tester, {
+        'cmd': 2,
+        'data': {'connect_state': true, 'name': 'Soni', 'address': ''},
+      });
+      expect(find.text('帮课'), findsOneWidget);
+      expect(visibleFunctions(tester), [...common, ...bangke]);
+    }
+  });
+
+  panelTest('a similar export name does not select the 帮课 model', (tester, provider) async {
+    await emit(tester, {
+      'cmd': 2,
+      'data': {'connect_state': true, 'name': '外贸助手', 'address': 'not-bangke', 'productType': 3},
+    });
+    expect(find.text('帮课'), findsNothing);
+    expectTitle(tester, 3, 'CB08', '外贸助手');
+    expect(visibleFunctions(tester), [...common, ...cb08]);
+  });
+
+  panelTest('switching away from 帮课 clears its model and heartbeat controls', (tester, provider) async {
+    await emit(tester, {
+      'cmd': 2,
+      'data': {'connect_state': true, 'name': '外贸帮手', 'address': 'bangke', 'productType': 3},
+    });
+    expect(find.text('帮课'), findsOneWidget);
+    await emit(tester, {
+      'cmd': 2,
+      'data': {'connect_state': true, 'name': '普通设备', 'address': 'ordinary', 'productType': 3},
+    });
+    expect(find.text('帮课'), findsNothing);
+    expectTitle(tester, 3, 'CB08', '普通设备');
+    expect(find.text('DEMO-63'), findsNothing);
+  });
+
+  panelTest('an export scan name without 外贸帮手 keeps the SDK device type', (
     tester,
     provider,
   ) async {
@@ -213,11 +291,11 @@ void main() {
         'productType': 4,
       },
     });
-    expectTitle(tester, 40, 'CB08', 'Soni');
-    expect(visibleFunctions(tester), [...common, ...cb08, 63, 64, 65]);
+    expectTitle(tester, 4, 'CB08', 'Soni');
+    expect(visibleFunctions(tester), [...common, ...cb08]);
   });
 
-  panelTest('外贸 in the connected name supplies type 40 without scan data', (
+  panelTest('an unknown export device without 外贸帮手 uses the default layout', (
     tester,
     provider,
   ) async {
@@ -225,8 +303,9 @@ void main() {
       'cmd': 2,
       'data': {'connect_state': '1', 'name': 'Soni外贸版', 'address': 'export'},
     });
-    expectTitle(tester, 40, 'CB08', 'Soni外贸版');
-    expect(visibleFunctions(tester), [...common, ...cb08, 63, 64, 65]);
+    expect(find.text('未知'), findsOneWidget);
+    expect(find.text('其他'), findsOneWidget);
+    expect(visibleFunctions(tester), [...common, 39, 40, 42, 41, 43, 44, 45, 52, 55, 56]);
   });
 
   panelTest('heartbeat timeout preserves the last acknowledged setting', (

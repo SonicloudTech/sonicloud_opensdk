@@ -111,6 +111,260 @@ void main() {
     expect(calls.where((call) => call.method == 'stopSearch'), isEmpty);
   });
 
+  for (final (state, address) in <(Object, String?)>[
+    (0, 'null'),
+    ('0', null),
+    (false, 'device-a'),
+    ('false', ''),
+  ]) {
+    connectionTest('disconnect ${state.runtimeType}:$state/${address ?? "missing"} immediately clears device selection caches', (
+      tester,
+      provider,
+    ) async {
+      for (final address in ['device-a', 'device-b']) {
+        await emit(tester, {
+          'cmd': 1, 'state': 0,
+          'data': {'name': 'CB08', 'address': address, 'productType': 48},
+        });
+      }
+      await provider.connect(provider.discoveredDevices.first);
+      await emit(tester, connection('device-a'));
+      await loadFiles(tester, provider);
+      expect(provider.discoveredDevices, hasLength(2));
+      final snapshots = <List<Object?>>[];
+      void observeDisconnect() {
+        if (!provider.isConnected) {
+          snapshots.add([
+            provider.discoveredDevices.length,
+            provider.deviceMap,
+            provider.deviceName,
+            provider.deviceAddress,
+          ]);
+        }
+      }
+      provider.addListener(observeDisconnect);
+      try {
+        await emit(tester, {
+          'cmd': 2,
+          'data': {'connect_state': state, if (address != null) 'address': address},
+        });
+        expect(provider.isConnected, isFalse);
+        expect(provider.deviceInfo, isNull);
+        expect(provider.discoveredDevices, isEmpty);
+        expect(provider.deviceMap, isNull);
+        expect(provider.deviceName, isEmpty);
+        expect(provider.deviceAddress, isEmpty);
+        expect(provider.recordFiles, isEmpty);
+        expect(provider.transFileName, isEmpty);
+        expect(snapshots, isNotEmpty);
+        expect(snapshots, everyElement([0, null, '', '']));
+      } finally {
+        provider.removeListener(observeDisconnect);
+      }
+      await provider.startSearch();
+      await emit(tester, {
+        'cmd': 1, 'state': 0,
+        'data': {'name': 'New pen', 'address': 'device-c', 'productType': 202},
+      });
+      expect(provider.discoveredDevices.single['address'], 'device-c');
+    });
+  }
+
+  connectionTest('disconnect does not scan after five seconds and manual search still works', (
+    tester,
+    provider,
+  ) async {
+    await emit(tester, connection('device-a'));
+    await emit(tester, connection('device-a', 'false'));
+    await tester.pump(const Duration(seconds: 6));
+    expect(calls.where((call) => call.method == 'startSearch'), isEmpty);
+    await provider.startSearch();
+    expect(calls.where((call) => call.method == 'startSearch'), hasLength(1));
+  });
+
+  connectionTest('unexpected disconnect stops SDK reconnect and rejects its later scan results', (
+    tester,
+    provider,
+  ) async {
+    await emit(tester, {
+      'cmd': 1, 'state': 0,
+      'data': {'name': 'CB08', 'address': 'device-a', 'productType': 48},
+    });
+    await provider.connect(provider.discoveredDevices.single);
+    await emit(tester, connection('device-a'));
+    calls.clear();
+    await emit(tester, connection('device-a', false));
+    expect(calls.where((call) => call.method == 'close'), hasLength(1));
+    expect(calls.where((call) => call.method == 'stopSearch'), hasLength(1));
+    await emit(tester, connection('device-a', false));
+    expect(calls.where((call) => call.method == 'close'), hasLength(1));
+    await tester.pump(const Duration(seconds: 6));
+    await emit(tester, {
+      'cmd': 1, 'state': 0,
+      'data': {'name': 'CB08', 'address': 'device-a', 'productType': 48},
+    });
+    await emit(tester, {'cmd': 6, 'data': {'cbc': 80}});
+    expect(provider.isConnected, isFalse);
+    expect(provider.deviceInfo, isNull);
+    expect(provider.discoveredDevices, isEmpty);
+    expect(provider.deviceMap, isNull);
+    expect(provider.cbc, '-1');
+    expect(calls.where((call) => call.method == 'startSearch'), isEmpty);
+    await provider.startSearch();
+    await emit(tester, {
+      'cmd': 1, 'state': 0,
+      'data': {'name': 'New pen', 'address': 'device-b', 'productType': 202},
+    });
+    expect(provider.discoveredDevices.single['address'], 'device-b');
+  });
+
+  connectionTest('manual disconnect is not sent to the SDK a second time', (
+    tester,
+    provider,
+  ) async {
+    await emit(tester, connection('device-a'));
+    calls.clear();
+    await provider.closeConnect();
+    await emit(tester, connection('device-a', false));
+    expect(calls.where((call) => call.method == 'close'), hasLength(1));
+    expect(calls.where((call) => call.method == 'stopSearch'), hasLength(1));
+    expect(provider.isConnected, isFalse);
+  });
+
+  connectionTest('SDK disconnect cleanup precedes explicit scans and duplicate callbacks do not stop them', (
+    tester,
+    provider,
+  ) async {
+    await emit(tester, connection('device-a'));
+    calls.clear();
+    var requested = false;
+    void scanAfterDisconnect() {
+      if (!provider.isConnected && !requested) {
+        requested = true;
+        provider.startSearch();
+      }
+    }
+    provider.addListener(scanAfterDisconnect);
+    try {
+      await emit(tester, connection('device-a', false));
+      expect(calls.map((call) => call.method), ['close', 'stopSearch', 'startSearch']);
+      await emit(tester, {
+        'cmd': 1, 'state': 0,
+        'data': {'name': 'New pen', 'address': 'device-b'},
+      });
+      await emit(tester, connection('device-a', false));
+      expect(calls.map((call) => call.method), ['close', 'stopSearch', 'startSearch']);
+      expect(provider.discoveredDevices.single['address'], 'device-b');
+    } finally {
+      provider.removeListener(scanAfterDisconnect);
+    }
+  });
+
+  connectionTest('disconnect cancels delayed initialization of the old connection', (
+    tester,
+    provider,
+  ) async {
+    await emit(tester, connection('device-a'));
+    calls.clear();
+    await emit(tester, connection('device-a', false));
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(calls.where((call) => const {
+      'syncTime', 'setTimestamp', 'getCBC', 'getSN',
+    }.contains(call.method)), isEmpty);
+  });
+
+  connectionTest('connection alone does not send time before authentication', (
+    tester,
+    provider,
+  ) async {
+    await emit(tester, connection('device-a'));
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(calls.where((call) => const {
+      'syncTime', 'setTimestamp',
+    }.contains(call.method)), isEmpty);
+  });
+
+  connectionTest('successful authentication sends Beijing time seconds', (
+    tester,
+    provider,
+  ) async {
+    await emit(tester, connection('device-a'));
+    for (final zero in [0, '0']) {
+      calls.clear();
+      final before = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      await emit(tester, {
+        'cmd': 31,
+        'state': zero,
+        'data': {'authkey_state': zero},
+      });
+      final after = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      final sent = calls.where((call) => call.method == 'setTimestamp').single;
+      expect(
+        sent.arguments['timestamp'],
+        inInclusiveRange(before + 28800, after + 28800),
+      );
+      expect(calls.where((call) => call.method == 'syncTime'), isEmpty);
+    }
+  });
+
+  connectionTest('failed or malformed authentication never sends time', (
+    tester,
+    provider,
+  ) async {
+    await emit(tester, connection('device-a'));
+    calls.clear();
+    for (final event in [
+      {'cmd': 31, 'state': 0, 'data': {'authkey_state': '1'}},
+      {'cmd': 31, 'state': 1, 'data': {'authkey_state': '0'}},
+      {'cmd': 31, 'state': 0, 'data': <String, dynamic>{}},
+      {'cmd': 31, 'state': 0, 'data': null},
+      {'cmd': 31, 'data': {'authkey_state': '0'}},
+      {'cmd': 32, 'state': 0, 'data': {'authkey_state': '0'}},
+      {'cmd': 33, 'state': 0, 'data': {'authkey_state': '0'}},
+    ]) {
+      await emit(tester, event);
+    }
+    await emit(tester, connection('device-a', false));
+    await emit(tester, {
+      'cmd': 31, 'state': 0, 'data': {'authkey_state': '0'},
+    });
+    expect(calls.where((call) => call.method == 'setTimestamp'), isEmpty);
+  });
+
+  for (final type in [201, 202, 48, 199, null]) {
+    connectionTest('manual time sync chooses the interface for type $type', (
+      tester,
+      provider,
+    ) async {
+      await emit(tester, {
+        'cmd': 2,
+        'data': {
+          'connect_state': '1',
+          'name': 'pen',
+          'address': 'device-a',
+          if (type != null) 'productType': type,
+        },
+      });
+      calls.clear();
+      final before = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      await provider.asyncNowTime();
+      final after = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      if (type == 201 || type == 202) {
+        expect(calls.single.method, 'setTimestamp');
+        expect(
+          calls.single.arguments['timestamp'],
+          inInclusiveRange(before + 28800, after + 28800),
+        );
+      } else {
+        expect(calls.single.method, 'syncTime');
+        expect(calls.single.arguments, isNull);
+      }
+    });
+  }
+
   connectionTest('different devices with the same name still clear files', (
     tester,
     provider,

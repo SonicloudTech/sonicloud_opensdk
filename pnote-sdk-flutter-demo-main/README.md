@@ -48,23 +48,34 @@
 
 ## 环境要求
 
-- Flutter SDK（建议与项目当前版本兼容）
+- FVM，项目固定使用 Flutter 3.41.9（Dart 3.11.5）
 - Xcode（iOS 构建）
 - Android Studio / Android SDK（Android 构建）
 - 真机设备（蓝牙、Wi-Fi、录音、热点等能力不建议使用模拟器）
 
 ## 快速开始
 
+先安装 FVM，并在项目根目录安装、选择项目指定的 SDK：
+
+```bash
+curl -fsSL https://fvm.app/install.sh | bash
+export PATH="$HOME/fvm/bin:$PATH"
+fvm install
+fvm use 3.41.9
+```
+
+后续 Flutter 命令统一加上 `fvm` 前缀。IDE 的 Flutter SDK 路径使用 `.fvm/flutter_sdk`。
+
 1. 安装依赖
 
    ```bash
-   flutter pub get
+   fvm flutter pub get
    ```
 
 2. 连接设备并运行
 
    ```bash
-   flutter run
+   fvm flutter run
    ```
 
 3. 首次启动时授权（Android）
@@ -79,7 +90,7 @@ iOS 版本号由 `pubspec.yaml` 的 `version` 统一管理。例如，`version: 
 修改版本号后、使用 Xcode Archive 或 Flutter 打包前，在项目根目录执行以下命令，刷新 Xcode 使用的版本号配置：
 
 ```bash
-flutter build ios --config-only --no-codesign
+fvm flutter build ios --config-only --no-codesign
 ```
 
 该命令会更新 `ios/Flutter/Generated.xcconfig` 中的 `FLUTTER_BUILD_NAME` 和 `FLUTTER_BUILD_NUMBER`，分别对应 iOS 的 `CFBundleShortVersionString` 和 `CFBundleVersion`。
@@ -87,14 +98,16 @@ flutter build ios --config-only --no-codesign
 如果重新构建后仍显示旧版本号，在项目根目录清理构建缓存并重新生成配置：
 
 ```bash
-flutter clean
-flutter pub get
-flutter build ios --config-only --no-codesign
+fvm flutter clean
+fvm flutter pub get
+fvm flutter build ios --config-only --no-codesign
 ```
 
 随后打开 `ios/Runner.xcworkspace`，在 Xcode 中执行 **Product → Clean Build Folder**（`Shift + Command + K`），再重新 Run 安装或 Archive 打包。热重载、热重启不会更新已安装 App 的版本号。
 
 不要手动修改 `ios/Flutter/Generated.xcconfig`，该文件由 Flutter 自动生成并会被覆盖。
+
+iOS 使用 `FlutterSceneDelegate` 启动，插件及原生通信通道在 `didInitializeImplicitFlutterEngine` 注册，以满足 iOS 27 SDK 的 UIScene 生命周期要求。升级 SDK 后，先执行上述配置生成命令，再使用 Xcode Run 或 Archive。
 
 参考：[Flutter iOS 版本号说明](https://docs.flutter.dev/deployment/ios#update-the-apps-build-and-version-numbers)、[package_info_plus 版本号缓存说明](https://pub.dev/packages/package_info_plus/versions/9.0.1#i-have-changed-version-in-pubspecyaml-and-plugin-returns-wrong-info)。
 
