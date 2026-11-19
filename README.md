@@ -40,7 +40,8 @@ sonicloud_opensdk/
 ├── pnote-android-sdk/                  # Android AAR
 ├── pnote-ios-sdk/                      # iOS static library and header
 ├── pnote-harmony-sdk/                  # HarmonyOS HAR SDK
-├── pnote-sdk-flutter-demo-main/        # Flutter integration demo
+├── pnote-flutter-sdk/                  # Pure-Dart Flutter plugin (BLE protocol, realtime audio stream, docs)
+├── pnote-sdk-flutter-demo-main/        # Flutter integration demo (legacy, native-SDK based)
 ├── pnote-web-win&Mac-demo/             # BLE REPL and Web demo
 │   ├── recorder/                       # Protocol, BLE, device session, and Web backend
 │   ├── web/                            # Front-end page
@@ -103,6 +104,19 @@ The desktop demo provides both a command-line REPL and a browser-based Web conso
 Before integrating, read the [SDK integration guide](SDK%20%E9%9B%86%E6%88%90%E5%BC%95%E5%AF%BC.docx) for permissions, dependencies, initialization, callbacks, audio processing, resumable file transfer, and OTA acceptance testing. For the cross-vendor standardization model, see the protocol notes and documents included in this repository.
 
 ### Flutter
+
+**Pure-Dart plugin (recommended)** — `pnote-flutter-sdk/` implements the full BLE protocol in Dart on top of `flutter_blue_plus`, with no native SDK dependency. Add it directly from this repository:
+
+```yaml
+pnote_flutter_sdk:
+  git:
+    url: https://github.com/SonicloudTech/sonicloud_opensdk.git
+    path: pnote-flutter-sdk
+```
+
+It covers scan/connect, device info, recording control, the realtime opus stream (`recordDataStream`), file list/download/delete, and an iOS-parity AppJson compatibility layer. See [README.en.md](pnote-flutter-sdk/README.en.md) for the full API reference and protocol cmd tables.
+
+**Legacy demo (native-SDK based)**:
 
 ```bash
 cd pnote-sdk-flutter-demo-main
@@ -167,6 +181,10 @@ Hardware integration typically follows this sequence: confirm capabilities → i
 For hardware specifications, sample devices, the HarmonyOS SDK, complete protocol material, or technical support, contact [SoniCloud](https://www.sinicloud.com/). Include the target platform, expected volume, device model, firmware version, and intended use case.
 
 <img src="img/微信.png" alt="SoniCloud contact QR code" width="200" style="max-width: 100%; height: auto;">
+
+<br>
+
+**Business & technical contact:** [xu_heng_yu@sinicloud.com](mailto:xu_heng_yu@sinicloud.com)
 
 ## License and usage boundaries
 

@@ -40,7 +40,8 @@ recorder/
 ├── pnote-android-sdk/                  # Android AAR
 ├── pnote-ios-sdk/                      # iOS 静态库与头文件
 ├── pnote-harmony-sdk/                  # 鸿蒙 HAR SDK
-├── pnote-sdk-flutter-demo-main/        # Flutter 联调 Demo
+├── pnote-flutter-sdk/                  # 纯 Dart Flutter 插件（BLE 协议全实现 + 实时音频流 + 文档）
+├── pnote-sdk-flutter-demo-main/        # Flutter 联调 Demo（旧版，基于原生 SDK）
 ├── pnote-web-win&Mac-demo/             # BLE 命令行与 Web Demo
 │   ├── recorder/                       # 协议、BLE、设备会话和 Web 后端
 │   ├── web/                            # 前端页面
@@ -102,6 +103,19 @@ python -m unittest discover tests -v
 开始接入前，请先阅读 [SDK 集成引导（Word）](SDK%20%E9%9B%86%E6%88%90%E5%BC%95%E5%AF%BC.docx)，了解权限、依赖、初始化、回调、音频处理、文件续传和 OTA 验收流程；需要理解跨厂商标准化设计时，可参考 [标准 BLE 指令 SDK 技术方案](%E5%A3%B0%E4%BA%91%E4%B8%93%E5%88%A9%E4%BA%A4%E5%BA%95%E4%B9%A6-%E6%A0%87%E5%87%86BLE%E6%8C%87%E4%BB%A4SDK%E6%96%B9%E6%A1%88.docx)。
 
 ### Flutter 联调工程
+
+**纯 Dart 插件（推荐）**——`pnote-flutter-sdk/` 基于 flutter_blue_plus 用纯 Dart 实现完整 BLE 协议，不依赖任何原生 SDK。直接从本仓库引入：
+
+```yaml
+pnote_flutter_sdk:
+  git:
+    url: https://github.com/SonicloudTech/sonicloud_opensdk.git
+    path: pnote-flutter-sdk
+```
+
+覆盖扫描连接、设备信息、录音控制、实时 opus 音频流（`recordDataStream`）、文件列表/下载/删除，以及与 iOS 端对齐的 AppJson 兼容层。完整 API 与协议 cmd 说明见 [README](pnote-flutter-sdk/README.md)。
+
+**旧版联调 Demo（基于原生 SDK）**：
 
 ```bash
 cd pnote-sdk-flutter-demo-main
@@ -165,6 +179,10 @@ PNote.connectDevice(name, address);
 
 <img src="img/微信.png" alt="微信" width="200" style="max-width: 100%; height: auto;">
 
+<br>
+
+**商务与技术联系：** [xu_heng_yu@sinicloud.com](mailto:xu_heng_yu@sinicloud.com)
+
 如需获取硬件规格、样机、鸿蒙 SDK、协议完整版、微信二维码或技术支持资料，请联系 **安徽声云**（官网：[sinicloud.com](https://www.sinicloud.com/)）。咨询时请说明目标平台、预计数量和应用场景。
 
 ## 许可与使用边界
@@ -181,3 +199,6 @@ PNote.connectDevice(name, address);
 ## 反馈与问题
 
 提交问题时请附上操作系统与版本、目标平台、SDK/Demo 版本、设备固件版本、复现步骤，以及必要的日志或收发帧 hex。涉及真实设备数据时，请先脱敏序列号、地址、授权码和录音内容。
+
+## 鸣谢
+[AtomGit](https://atomgit.com/SonicloudTech/sonicloud_opensdk):荣获 AtomGit 官方 G-Star 优质项目认证
