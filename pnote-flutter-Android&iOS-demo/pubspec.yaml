@@ -1,0 +1,43 @@
+name: pnote_demo_app
+description: "Demo app for pnote_flutter_sdk (BLE voice recorder)"
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.13.5
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  pnote_flutter_sdk:
+    git:
+      # 国内克隆慢时可换 Gitee，二选一
+      url: https://github.com/chenqiangchenqiang/pnote-flutter-sdk.git
+
+  flutter_blue_plus: ^1.32.0
+
+  # 实时转写：opus 解码（FFI libopus）/ WebSocket / md5 token
+  opus_codec: ^3.0.5
+  opus_codec_dart: ^3.0.5
+  web_socket_channel: ^3.0.3
+  crypto: ^3.0.0
+  just_audio: ^0.10.6
+  audio_session: ^0.2.4
+  path_provider: ^2.1.6
+
+  # AI 纪要 Markdown 渲染 / 交互式思维导图（源项目同款本地包）
+  markdown_widget: ^2.3.2+8
+  flutter_mind_map:
+    path: ./flutter_mind_map-1.0.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  generate: true
+  uses-material-design: true

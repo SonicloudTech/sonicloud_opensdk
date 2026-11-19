@@ -42,6 +42,7 @@ recorder/
 ├── pnote-harmony-sdk/                  # 鸿蒙 HAR SDK
 ├── pnote-flutter-sdk/                  # 纯 Dart Flutter 插件（BLE 协议全实现 + 实时音频流 + 文档）
 ├── pnote-sdk-flutter-demo-main/        # Flutter 联调 Demo（旧版，基于原生 SDK）
+├── pnote-flutter-Android&iOS-demo/     # Flutter App Demo（新版：录音 + 实时转写 + AI 纪要/思维导图）
 ├── pnote-web-win&Mac-demo/             # BLE 命令行与 Web Demo
 │   ├── recorder/                       # 协议、BLE、设备会话和 Web 后端
 │   ├── web/                            # 前端页面

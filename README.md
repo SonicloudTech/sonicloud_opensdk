@@ -42,6 +42,7 @@ sonicloud_opensdk/
 ├── pnote-harmony-sdk/                  # HarmonyOS HAR SDK
 ├── pnote-flutter-sdk/                  # Pure-Dart Flutter plugin (BLE protocol, realtime audio stream, docs)
 ├── pnote-sdk-flutter-demo-main/        # Flutter integration demo (legacy, native-SDK based)
+├── pnote-flutter-Android&iOS-demo/     # Flutter app demo (new: recording + live transcription + AI summary/mind map)
 ├── pnote-web-win&Mac-demo/             # BLE REPL and Web demo
 │   ├── recorder/                       # Protocol, BLE, device session, and Web backend
 │   ├── web/                            # Front-end page
