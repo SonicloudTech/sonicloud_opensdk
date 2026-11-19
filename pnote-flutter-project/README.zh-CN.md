@@ -1,4 +1,4 @@
-# PNote Flutter Project
+# SoniCloud Project
 
 录音笔（蓝牙智能笔）配套演示 App。基于 [pnote_flutter_sdk](https://github.com/chenqiangchenqiang/pnote-flutter-sdk) 演示设备连接、录音控制、实时转写（说话人分离）、文件管理、本地回放与 AI 纪要/思维导图生成的完整链路。
 

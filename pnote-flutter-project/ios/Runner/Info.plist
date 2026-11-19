@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>PNote Demo</string>
+	<string>SoniCloud Project</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>Connect to the voice recorder pen over Bluetooth.</string>
 	<key>CFBundleExecutable</key>

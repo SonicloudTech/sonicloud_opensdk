@@ -45,7 +45,7 @@ class _PnoteDemoAppState extends State<PnoteDemoApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'PNote Project',
+      title: 'SoniCloud Project',
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       locale: _localeOverride,
@@ -184,7 +184,7 @@ class _HomeShellState extends State<HomeShell> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('PNote Project'),
+        title: const Text('SoniCloud Project'),
         actions: [
           _languageMenu(l10n),
           _deviceChip(l10n),

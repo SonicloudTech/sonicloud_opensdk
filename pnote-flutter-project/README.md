@@ -1,4 +1,4 @@
-# PNote Flutter Project
+# SoniCloud Project
 
 Flutter project for the PNote Bluetooth voice-recorder pen. Built on [pnote_flutter_sdk](https://github.com/chenqiangchenqiang/pnote-flutter-sdk), it demonstrates the complete chain: device connection, recording control, live transcription with speaker separation, file management, local playback, and AI meeting-summary / mind-map generation.
 

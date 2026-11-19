@@ -16,7 +16,7 @@
         android:required="true" />
 
     <application
-        android:label="PNote Demo"
+        android:label="SoniCloud Project"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
