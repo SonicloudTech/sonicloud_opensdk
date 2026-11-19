@@ -7,7 +7,11 @@
 - 平台：Android / iOS（Flutter）
 - 语言：中文 / 英文（默认跟随系统，**非中文系统一律英文**）
 - 主题色：`#3D9AFF`（设计令牌见 `lib/design/tokens.dart`）
-- 演示视频：[Demonstration.mp4](Demonstration.mp4)；预编译测试包：[demo-apk/](demo-apk)（debug 签名，仅供安装体验，正式集成请自行构建）
+- 预编译测试包：[demo-apk/](demo-apk)（debug 签名，仅供安装体验，正式集成请自行构建）
+
+**演示视频**
+
+https://github.com/user-attachments/assets/606a73df-dad9-48d2-b2ed-ecc00dbb7535
 
 ## 功能总览
 

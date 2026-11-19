@@ -7,7 +7,11 @@ Demo app for the PNote Bluetooth voice-recorder pen. Built on [pnote_flutter_sdk
 - Platforms: Android / iOS (Flutter)
 - Languages: Chinese / English (follows the system locale; **any non-Chinese system gets English**)
 - Theme color: `#3D9AFF` (design tokens in `lib/design/tokens.dart`)
-- Demo video: [Demonstration.mp4](Demonstration.mp4) · Prebuilt test APK: [demo-apk/](demo-apk) (debug-signed, for evaluation only — build your own for production)
+- Prebuilt test APK: [demo-apk/](demo-apk) (debug-signed, for evaluation only — build your own for production)
+
+**Demo video**
+
+https://github.com/user-attachments/assets/606a73df-dad9-48d2-b2ed-ecc00dbb7535
 
 ## Features
 
