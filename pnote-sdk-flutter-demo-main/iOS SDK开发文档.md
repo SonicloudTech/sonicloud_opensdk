@@ -1,23 +1,23 @@
 # SDK开发文档
 
+接口说明更新：2026-11-11。本次补充杰理设备心跳接口与回调、离线文件传输间隔设置，以及 AuthKey 修改与解绑说明。
 
 ## 一、集成SDK
+
 ###1.引入libPNote.a到项目
-	  
 
 ## 二、SDK初始化
-
 
 //设备回调的接口，需要实现
 @protocol WindBleDelegate
 /// 设备数据回调
-- (void)deviceDataEvent:(NSString *)data;
-///设备实时录音数据 opus格式
-- (void)deviceRecordData:(NSData *)recordData;
-///设备文件数据 opus格式
-- (void)deviceFileData:(NSData *)fileData;
-@end
 
+- (void)deviceDataEvent:(NSString *)data;
+  ///设备实时录音数据 opus格式
+- (void)deviceRecordData:(NSData *)recordData;
+  ///设备文件数据 opus格式
+- (void)deviceFileData:(NSData *)fileData;
+  @end
 
 ## 三.方法说明
 
@@ -36,7 +36,7 @@
         "name":"name",
         "address":"address",
         "productType":"productType",
-
+    
       }
     }
     说明：
@@ -46,8 +46,8 @@
     name    蓝牙名称
     address    蓝牙地址
     productType    产品类型
-
-
+    
+    
     /// 停止搜索
     -(void)stopSearch;
     
@@ -56,7 +56,7 @@
     
     /// 连接设备 参数：设备名称  设备mac地址
     - (void)connectDeviceAndAddress:(NSString *)deviceName :(NSString *)address;
-
+    
     /// 断开连接
     -(void)closeConnect;
     
@@ -82,6 +82,123 @@
     
     注：如果设备端关机等情况断开连接，SDK也会主动上报断开连接的数据；
 
+#### AuthKey 认证（C10 新增）
+
+以下接口用于支持 AuthKey 的设备，调用前需完成 SDK 初始化并保持蓝牙连接。
+
+```objective-c
+/// 蓝牙连接后进行 AuthKey 认证
+-(void)authkeyConnect:(NSString *)authkey;
+```
+
+`authkey` 为 64 位十六进制字符，对应 32 字节密钥；允许大小写十六进制字符、可选的 `0x` / `0X` 前缀和首尾空白。前缀不计入 64 位长度，传入字符串即可，由 SDK 校验并转换为字节。
+
+iOS SDK 对无效参数不发送认证指令，因此不能等待这类输入产生设备结果回调。
+
+结果通过 `deviceDataEvent:(NSString *)data` 异步返回：
+
+| 方法             | cmd | data 字段       | 功能                |
+| -------------- | --- | ------------- | ----------------- |
+| authkeyConnect | 31  | authkey_state | 使用设备当前 AuthKey 认证 |
+
+认证结果格式示例：
+
+```json
+{
+  "cmd": "31",
+  "state": "0",
+  "data": {
+    "authkey_state": "0"
+  }
+}
+```
+
+`state` 是回调状态；`authkey_state` 为设备返回的操作结果 Code，以十进制字符串上报。SDK 透传设备 Code，具体含义以设备固件协议为准，不能仅凭 `state=0` 判断认证成功。
+
+调用示例：
+
+```objective-c
+// 在蓝牙连接成功回调后调用，示例值需替换成设备当前 AuthKey。
+NSString *authkey = @"00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
+[[PNode Shared] authkeyConnect:authkey];
+```
+
+认证使用设备当前 AuthKey，调用 `authkeyConnect` 后需等待设备回调（`cmd=31`）并确认认证成功，再执行需要认证的操作。
+
+#### 修改 AuthKey 与解绑
+
+以下接口用于支持 AuthKey 的设备，在蓝牙连接并完成当前 AuthKey 认证后调用：
+
+```objective-c
+/// 修改为新的 AuthKey，参数格式及无效参数处理同 authkeyConnect:
+-(void)resetAuthkey:(NSString *)authkey;
+
+/// 解除绑定并恢复出厂默认 AuthKey
+-(void)unbondAuthkey;
+```
+
+结果通过 `deviceDataEvent:(NSString *)data` 异步返回：
+
+| 方法 | cmd | data 字段 | 功能 |
+| --- | --- | --- | --- |
+| resetAuthkey: | 32 | authkey_state | 修改设备 AuthKey |
+| unbondAuthkey | 33 | authkey_state | 解绑并恢复出厂默认 AuthKey |
+
+回调结构与 `cmd=31` 相同，仅 `cmd` 不同。`authkey_state` 为设备返回的操作结果 Code，以十进制字符串上报，具体含义以设备固件协议为准；不能仅凭顶层 `state=0` 判断修改或解绑成功。
+
+确认修改成功后，后续认证使用新 AuthKey；确认解绑成功后，后续认证使用设备出厂默认 AuthKey。
+
+#### 设备名称设置与复位
+
+```objective-c
+/// 设置设备名称
+-(void)setDeviceName:(NSString *)name;
+
+/// 恢复出厂默认设备名称
+-(void)resetDeviceName;
+```
+
+`name` 仅支持 2-16 位英文字母或数字（`[A-Za-z0-9]`），调用前在 App 侧校验。
+
+结果通过 `deviceDataEvent:(NSString *)data` 返回，设置名称的 `cmd=25`，复位名称的 `cmd=26`，共用以下格式：
+
+```json
+{
+  "cmd": "25",
+  "state": "0",
+  "data": {
+    "device_name_state": "0"
+  }
+}
+```
+
+`device_name_state`：`0` 表示成功，`1` 表示失败。
+
+#### 重置设备
+
+```objective-c
+/// 恢复出厂设置，设备回复后删除全部音频、恢复默认蓝牙名称并重启
+-(void)restDevice;
+
+// 调用示例（方法名以 SDK 的 restDevice 为准）
+[[PNode Shared] restDevice];
+```
+
+Demo 的“重置”按钮通过 Flutter `resetDevice()` 调用原生 `resetDevice` 通道，Swift 中执行 `PNode.shared().restDevice()`。
+
+重置结果通过 `deviceDataEvent:(NSString *)data` 异步返回，`cmd=35`：
+
+```json
+{
+  "cmd": "35",
+  "state": "0",
+  "data": {
+    "reset_device_state": "0"
+  }
+}
+```
+
+`state`：`0` 表示正常，非 `0` 表示异常。`reset_device_state`：`0` 表示重置成功，`1` 表示重置失败，其他值在 Demo 中显示结果未知。通道返回仅表示已调用 SDK，设备执行结果以 `cmd=35` 回调为准。
 
 ### 2、录音
 
@@ -102,7 +219,7 @@
     cmd    标记：9
     state    标记：0 表示正常，非0表示异常
     recordState    1  小机在录音状态 2小机不在录音状态
-
+    
     
     /// 获取录音笔正在录音中时候的录音文件名称
     -(void)getFileNameOnlyRecording;
@@ -121,8 +238,8 @@
     cmd    标记：11
     state    标记：0 表示正常，非0表示异常
     recordName    文件名称
-
-
+    
+    
     ///获取当前录音时长，当录音笔设备是在录音状态的时候
     -(void)getTimeOnlyRecording;
     
@@ -140,19 +257,39 @@
     cmd    标记：10
     state    标记：0 表示正常，非0表示异常
     recordTime    当前录音时长，按秒为单位
-
-
+    
+    
     ** 由app端发起
     
     /// 启动录音
     -(void)startRecord;
-
+    
+    /// L09 启动录音并选择麦克风
+    -(void)startRecord:(NSInteger)boneMic;
+    
+    参数 boneMic：
+    0：关闭骨麦，开启数字麦。
+    1：开启骨麦，关闭数字麦。
+    其他值无效，不发送录音指令。
+    
+    调用示例（Objective-C）：
+    [[PNode Shared] startRecord:0]; // 使用数字麦开始录音
+    [[PNode Shared] startRecord:1]; // 使用骨麦开始录音，与上一行二选一调用
+    
+    调用示例（Swift）：
+    PNode.shared().startRecord(0) // 使用数字麦开始录音
+    PNode.shared().startRecord(1) // 使用骨麦开始录音，与上一行二选一调用
+    
+    Demo 在“开始录音”按钮后提供“L09录音”按钮，点击弹出麦克风选项。
+    选择“数字麦（关闭骨麦）”传入 0，选择“骨麦（关闭数字麦）”传入 1，选中后开始录音；取消不发送指令。
+    原无参数 startRecord 接口保留；带参数接口的录音状态和实时音频回调沿用下方说明。
+    
     /// 暂停录音
     -(void)pauseRecord;
     
     /// 继续录音
     -(void)continueRecord;
-
+    
     /// 停止录音
     -(void)stopRecord;
     
@@ -217,7 +354,6 @@
     当app收到event为5的时候，表示录音笔请求暂停录音，app做完成UI及逻辑处理后，调用pauseBtnBackRecord函数，录音笔进入暂停录音操作；
     当app收到event为7的时候，表示录音笔请求继续录音，app做完成UI及逻辑处理后，调用continueBtnBackRecord函数，录音笔进入继续录音操作；
 
-
 ### 3、文件操作
 
     /// 获取文件列表
@@ -244,14 +380,15 @@
     size    文件大小，字节
     time    文件时长，秒
     name    文件名
-
+    
     
     /// 开始传输录音文件，参数fileName  文件名，非空， 参数offset，偏移量，从哪里开始传递，如果整个文件传输，可以传递为0
     -(void)startGetFile:(NSString *)fileName : (NSString*) offset;
     
     /// 开始传输录音文件  参数fileName  文件名，非空， 参数offset，偏移量，从哪里开始传递，参数end，传递到哪里截止，end 要比offset 大
+
    -(void)startGetFileByFromToEnd:(NSString *)fileName : (NSString*) offset :(NSString*) end ;
-    
+
     文件传输数据，结果在onDeviceDataEvent接口返回，json格式：
     {
       "cmd":"cmd",
@@ -268,7 +405,7 @@
     state    标记：0 表示正常，非0表示异常
     record_file_state    0：传输完成； 1：文件不存在； 2：offset过大（预留）； 3：其他停止 4 : 传输中
     name    文件名称
-
+    
     /// 停止传输录音文件  参数fileName  文件名，非空，
     -(void)stopGetFile:(NSString *)fileName;
     
@@ -294,6 +431,31 @@
     state    标记：0 表示正常，非0表示异常
     delete_state    0：成功； 1：失败；
 
+#### 设置离线文件传输间隔
+
+```objective-c
+/// 设置离线文件传输间隔，单位：毫秒
+-(void)sendFileTimeInterval:(uint8_t)interval;
+
+// 示例：设置为 20 毫秒
+[[PNode Shared] sendFileTimeInterval:20];
+```
+
+在蓝牙连接后调用，用于调整设备发送离线文件数据的间隔。Demo 限制输入为 `13–255` 毫秒；直接集成 SDK 时也应先在 App 侧校验范围，再转换为 `uint8_t` / Swift `UInt8`，避免超范围转换。
+
+结果通过 `deviceDataEvent:(NSString *)data` 异步返回：
+
+```json
+{
+  "cmd": "100",
+  "state": "0",
+  "data": {
+    "offline_transfer_interval_state": "0"
+  }
+}
+```
+
+`offline_transfer_interval_state`：`0` 表示设置成功，`1` 表示设置失败。方法返回仅表示调用已完成，需等待设备回调确认设置结果。
 
 ### 4、WIFI操作管理
 
@@ -320,7 +482,7 @@
     
     /// 断开WiFi
     -(void) disconnectDeviceWiFi();
-    操作成功后，会在cmd 12的接口返回WiFi状态：2表示WiFi连接成功，3表示WiFi断开连接
+    操作成功后，会在cmd 12的接口返回WiFi状态：2表示WiFi连接成功，3表示WiFi断开连接的
     
     结果在onDeviceDataEvent接口返回，格式：
     {
@@ -338,10 +500,117 @@
     state    标记：0 表示正常，非0表示异常
     wifi_state    WiFi状态，0表示WiFi热点打开 1 表示WiFi热点关闭 2表示WiFi连接成功，3表示WiFi断开连接  4 有手机WiFi连接  5当前没有手机连接设备WiFi热点
     wifiName    Wifi名称
-
+    
     当手机连接上设备WiFi热点的时候，设备也会主动推送cmd为12的json数据:4 有手机连接设备WiFi热点；
 
+#### 快速连接设备 Wi-Fi
+
+当前 SDK 的快速连接仅提供以下三参数方法，不再提供无参或双参方法。有密码和无密码热点均调用此方法，无密码时将 `password` 传为空字符串 `@""`。
+
+调用前保持蓝牙连接；需要认证的设备先完成 AuthKey 认证。SDK 打开设备热点、连接热点并建立 TCP，结果通过现有 `cmd=12` 回调返回。只有 `data.wifi_state=2` 才表示 TCP 连接成功，热点打开或手机加入热点的回调不能作为文件传输就绪条件。
+
+```objective-c
+/// 打开设备热点并自动连接，指定超时时间（单位：秒）及热点密码
+-(void)quickConnectDeviceWiFiWithWiFiTimeout:(NSTimeInterval)wifiTimeout tcpTimeout:(NSTimeInterval)tcpTimeout password:(NSString *)password;
+```
+
+`wifiTimeout` 为快速连接总超时，非正数使用默认 30 秒；`tcpTimeout` 为单次 TCP 连接超时，非正数使用默认 10 秒。建议总超时大于单次 TCP 超时。
+
+宿主 App 使用前需在 Target > Signing & Capabilities 中启用 Hotspot Configuration，证书和 Provisioning Profile 必须包含 `com.apple.developer.networking.HotspotConfiguration`。App 需位于前台，并由用户处理系统可能弹出的 Wi-Fi 加入确认。
+
+```objective-c
+// 连接有密码的热点
+[[PNode Shared] quickConnectDeviceWiFiWithWiFiTimeout:30 tcpTimeout:10 password:@"12345678"];
+// 连接无密码热点，密码传入空字符串
+[[PNode Shared] quickConnectDeviceWiFiWithWiFiTimeout:30 tcpTimeout:10 password:@""];
+```
+
+2-16个字符[英文、数字]
+`password` 为设备热点当前密码；SDK 支持空字符串或 `nil` 连接无密码热点，Demo 统一传入空字符串 `@""`。Demo 点击“一键连接WiFi”后弹出与“密码连接”相同的密码输入框，允许留空；确认后将密码原样传入 SDK，取消则不发起连接。
+
+#### 设置设备热点密码（C10 新增）
+
+```objective-c
+-(void)setWifiPassword:(NSString *)password;
+```
+
+`password` 为 8-16 个字符。调用前保持蓝牙连接；热点已经开启时，新密码在下次开启热点时生效。iOS SDK 对无效密码不发送设置指令。
+
+结果通过 `deviceDataEvent:(NSString *)data` 返回：
+
+```json
+{
+  "cmd": "34",
+  "state": "0",
+  "data": {
+    "wifi_password_state": "0"
+  }
+}
+```
+
+`wifi_password_state` 为设备返回的操作结果 Code，以十进制字符串上报，具体含义以设备固件协议为准；`state=0` 不等同于密码设置成功。收到设备结果并确认成功后，下次连接热点时使用新密码。
+
+此接口修改的是设备自身热点密码；下方直传 Wi-Fi 接口的 `password` 是设备连接外部网络时使用的密码。
+
+#### Wi-Fi 直传配置
+
+以下接口用于支持 Wi-Fi 直传的设备，调用前保持蓝牙连接。`ssid`、`password` 和上传 URL 使用 UTF-8 编码，单个字段不得超过 65535 字节。
+
+```objective-c
+/// 设置设备直传网络的 SSID 和密码
+-(void)setWiFiDirectSSID:(NSString *)ssid password:(NSString *)password;
+
+/// 设置音频直传服务器上传 URL
+-(void)setRemoteURL:(NSString *)remoteURL;
+
+/// 复位直传 Wi-Fi 参数
+-(void)resetWiFiDirect;
+
+/// 获取当前直传 Wi-Fi 的 SSID 和连接状态
+-(void)getWiFiDirect;
+```
+
+设置 SSID / 密码的结果 `cmd=27`，设置上传 URL 的结果 `cmd=28`，共用以下格式：
+
+```json
+{
+  "cmd": "27",
+  "state": "0",
+  "data": {
+    "wifi_direct_state": "0"
+  }
+}
+```
+
+`wifi_direct_state`：`0` 表示设置成功，`1` 表示设置失败。`cmd=27` 和 `cmd=28` 均使用此字段。
+
+复位参数的回调格式：
+
+```json
+{
+  "cmd": "29",
+  "state": "0",
+  "data": {}
+}
+```
+
+查询当前直传 Wi-Fi 的回调格式：
+
+```json
+{
+  "cmd": "30",
+  "state": "0",
+  "data": {
+    "ssid": "OfficeWiFi",
+    "status": "0"
+  }
+}
+```
+
+`ssid` 为当前直传 Wi-Fi 名称，`status` 为连接状态（`0` 表示成功，`1` 表示失败），此字段仅用于 `cmd=30`。设置参数成功后，可调用查询接口确认设备的直传网络状态。
+
 ### 5、OTA部分
+
     ///获取版本号code
     -(void) getDeviceVersionCode();
     结果在onDeviceDataEvent接口返回，格式：
@@ -374,10 +643,10 @@
     名称    描述
     cmd    标记：19
     state    标记：0 表示正常，非0表示异常
-    prepareState    返回状态，0表示已经进入升级状态，
+    prepareState    返回状态，0 和 3 表示可以进入升级状态，
     1 表示不能进入升级状态，主要原因是可能是SD卡或者内存不足；
     2 表示WiFi的TCP/IP未连接，升级模式需要在WiFi连接的状态下才能进行升级；
-
+    
     //发送升级文件数据
     -(void) sendOtaFile(byte[] data);
     
@@ -391,7 +660,7 @@
       {
         "progress":"progress",
         "total":"total"
-
+    
       }
     }
     说明：
@@ -417,7 +686,7 @@
     state    标记：0 表示正常，非0表示异常
     receiveState  0：文件接收完成，准备重启（重启表示不代表升级成功，需要重启完成后建议连接完成蓝牙后获取一次版本code进行比较是否一致
     1：文件接收错误，升级失败；如果WiFi连接或者蓝牙连接断开的时候，设备端会直接退出升级模式；
-
+    
     OTA升级流程，目前这边的升级流程，供参考：
     判断电池电量是否大于 20%
     否 → 提示 “电池电量不足，不能升级” → 流程结束
@@ -433,7 +702,7 @@
     接收设备回复码
     回复 1 → 提示 “不能进入升级状态（SD 卡 / 内存不足）” → 流程结束
     回复 2 → 提示 “WiFi 的 TCP/IP 未连接，需确保 WiFi 连接” → 流程结束
-    回复 0 → 设备正常进入升级模式，进入下一步
+    回复 0 或 3 → 设备正常进入升级模式，进入下一步
     APP 通过sendotaFile函数一次性传输升级数据给 SDK
     监控升级过程中 WiFi / 蓝牙连接状态
     连接断开 → 设备退出升级模式 → 流程结束
@@ -446,8 +715,135 @@
     版本 code 一致 → 提示 “升级成功” → 流程结束
     版本 code 不一致 → 提示 “升级失败（版本未更新）” → 流程结束
     
-### 6、其它
+    //获取BK固件版本号
+    -(void)getBKHDVersion;
     
+    //下发BK升级固件URL地址
+    -(void)setBKUpgradeHD:(NSString *)url;
+    
+    BK OTA相关结果在onDeviceDataEvent接口返回，格式：
+    {
+      "cmd":"40",
+      "state":"0",
+      "data":
+      {
+        "log":原始蓝牙数据
+      }
+    }
+    
+    说明：
+    名称    描述
+    cmd    标记：41
+    state    标记：0 表示正常，非0表示异常
+    
+    "log":原始蓝牙数据
+    
+    BK OTA升级说明：
+    APP需要提供设备可访问的HTTP或HTTPS固件下载地址，并在HTTP响应头中返回文件长度Content-Length；
+    调用setBK_UPGRADEHD时传入未对完整地址进行URIEncode的URL；如果文件名包含特殊字符，仅对URL路径中的文件名进行编码；
+    调用getBKHDVersion获取当前BK固件版本号；
+    对比版本后调用setBK_UPGRADEHD下发升级地址；
+    通过cmd 40依次处理升级URL设置结果、下载进度和文件校验结果；
+    
+    部分 BK OTA相关结果在onDeviceDataEvent接口返回，格式：
+    {
+      "cmd":"41",
+      "state":"0",
+      "data":
+      {
+        "type":"type",
+        "value":"value"
+      }
+    }
+    说明：
+    名称    描述
+    cmd    标记：41
+    state    标记：0 表示正常，非0表示异常
+    
+    type    
+    01    返回BK固件版本号 
+    08    返回升级URL设置结果，0：成功；1：失败
+    09    返回固件下载进度 0-100
+    0A    返回固件文件校验结果，0：成功；1：失败
+
+### 6、其它
+
+#### 杰理设备心跳
+
+以下接口用于支持心跳协议的杰理设备，调用前需保持蓝牙连接。
+
+```objective-c
+/// 设置设备是否发送心跳：0 关闭，1 开启
+-(void)setHeartbeatDataState:(int)state;
+
+/// 收到 cmd=101 后回复设备心跳
+-(void)sendBackHeartbeatData;
+```
+
+`setHeartbeatDataState:` 仅接受 `0` 或 `1`，其他值抛出 `NSInvalidArgumentException`，不发送指令。
+
+| 交互 | 协议指令 | SDK 回调 cmd | 说明 |
+| --- | --- | --- | --- |
+| 设备发送心跳 | 0x32 | 101 | App 收到后调用 sendBackHeartbeatData 回复 |
+| App 回复心跳 | 0x33 | — | 回复当前心跳，无需等待 cmd=102 |
+| App 设置心跳开关 | 0x34 | — | 调用 setHeartbeatDataState: 下发设置 |
+| 设备回复心跳开关 | 0x35 | 102 | 确认设备心跳开关状态 |
+
+心跳通过 `deviceDataEvent:(NSString *)data` 返回：
+
+```json
+{
+  "cmd": "101",
+  "state": "0",
+  "data": {}
+}
+```
+
+在 `WindBleDelegate` 中处理心跳的示例：
+
+```objective-c
+- (void)deviceDataEvent:(NSString *)data {
+    NSData *jsonData = [data dataUsingEncoding:NSUTF8StringEncoding];
+    if (!jsonData) return;
+    id event = [NSJSONSerialization JSONObjectWithData:jsonData options:0 error:nil];
+    if (![event isKindOfClass:[NSDictionary class]]) return;
+    if ([[event[@"cmd"] description] isEqualToString:@"101"]
+            && [[event[@"state"] description] isEqualToString:@"0"]) {
+        [[PNode Shared] sendBackHeartbeatData];
+    }
+    // 其他 cmd 在此继续分发处理。
+}
+```
+
+App 需自行接入心跳回复逻辑；Demo 在 Flutter 的 `RecordPenProvider` 收到 `cmd=101` 后按“自动回复”开关调用回复接口，默认开启自动回复。
+
+开关设置示例（按需二选一调用）：
+
+```objective-c
+[[PNode Shared] setHeartbeatDataState:1]; // 开启设备心跳
+[[PNode Shared] setHeartbeatDataState:0]; // 关闭设备心跳
+```
+
+设备通过 `cmd=102` 返回开关状态，例如开启后的回调：
+
+```json
+{
+  "cmd": "102",
+  "state": "0",
+  "data": {
+    "heartbeat_state": "00"
+  }
+}
+```
+
+`heartbeat_state` 为设备当前状态：`"00"` 表示开启，`"01"` 表示关闭。注意它与调用参数的含义不同：传入 `1` 开启，对应回调 `"00"`；传入 `0` 关闭，对应回调 `"01"`。顶层 `state` 表示回调状态，需结合 `heartbeat_state` 确认实际开关状态。
+
+部分回调的 `data` 可能为空对象，App 应兼容字段缺失；此时不能从回调读取设备当前开关值。Demo 会使用当前待确认的设置值，并在 5 秒内未收到应答时显示超时。此超时是 Demo 的等待策略。
+
+Demo 的“设备发送”和“自动回复”分别控制设备心跳开关、App 是否回复心跳；关闭自动回复不会向设备下发关闭心跳指令。连接状态变化时 Demo 将“设备发送”的界面状态重置为开启，该界面初值不代表新收到设备状态回调。
+
+#### 设备信息与设置
+
     ///同步时间, 连接上设备后，需要先调用此方法把app时间同步给录音笔设备
     -(void)syncTime;
     
@@ -468,8 +864,8 @@
     cmd    标记：6
     state    标记：0 表示正常，非0表示异常
     cbc    电量百分比  0~100 电量百分比   110   充电中
-
-
+    
+    
     ///获取SN码
     -(void)getSn;
     格式：
@@ -542,7 +938,7 @@
     cmd    标记：16
     state    标记：0 表示正常，非0表示异常
     gain_state    0：成功； 1：失败；
-
+    
     ///获取版本号
     -(void)getDeviceVersion;
     结果在onDeviceDataEvent接口返回，格式：
@@ -562,7 +958,7 @@
     
     
     /// 获取当前设备是否低功耗录音模式，此函数主要是用于长时间续航
-    public static void getDeviceLowPowerRecordMode();
+    -(void)getDeviceLowPowerRecordMode;
     结果在onDeviceDataEvent接口返回，格式：
     {
       "cmd":"cmd",
@@ -580,7 +976,7 @@
     
     
     /// 设置当前设备低功耗录音模式  1是进入低功耗，0 是退出低功耗
-    public static void setDeviceLowPowerRecordMode(int state);
+    -(void)setDeviceLowPowerRecordMode:(int)state;
     
     结果在onDeviceDataEvent接口返回，格式：
     {
@@ -596,31 +992,3 @@
     cmd    标记：23
     state    标记：0 表示正常，非0表示异常
     low_power_state    0：设置成功； 1：设置失败；
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
- 

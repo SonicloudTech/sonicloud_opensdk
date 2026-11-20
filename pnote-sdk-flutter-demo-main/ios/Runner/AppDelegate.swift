@@ -1,31 +1,45 @@
 import Flutter
 import UIKit
+import Darwin
 
 @main
-@objc class AppDelegate: FlutterAppDelegate {
+@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
+    private var fileShareResult: FlutterResult?
+
     override func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
-        GeneratedPluginRegistrant.register(with: self)
-        
-        if let controller = UIApplication.shared.connectedScenes
-            .compactMap({ ($0 as? UIWindowScene)?.windows.first })
-            .first?.rootViewController as? FlutterViewController {
-            
-            let eventChannel = FlutterEventChannel(
-                name: "com.soni.soni_sdk_demo/eventChannel",
-                binaryMessenger: controller.binaryMessenger
-            )
-            eventChannel.setStreamHandler(self)
-        }
-        
-        
-        
-        let channel = FlutterMethodChannel(name: "com.soni.soni_sdk_demo/recordPen", binaryMessenger: self.window?.rootViewController as! FlutterBinaryMessenger)
-        channel.setMethodCallHandler { (call: FlutterMethodCall, result: FlutterResult) -> Void in
+        PNode.shared().delegate = self
+        return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+    }
+
+    func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
+        GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+        let messenger = engineBridge.applicationRegistrar.messenger()
+        let eventChannel = FlutterEventChannel(
+            name: "com.soni.soni_sdk_demo/eventChannel",
+            binaryMessenger: messenger
+        )
+        eventChannel.setStreamHandler(self)
+        let channel = FlutterMethodChannel(name: "com.soni.soni_sdk_demo/recordPen", binaryMessenger: messenger)
+        channel.setMethodCallHandler { (call: FlutterMethodCall, result: @escaping FlutterResult) -> Void in
             print("iOS原生收到指令\(call.method)    参数：\(call.arguments)");
             switch(call.method) {
+            case "getPhoneInfo":
+                var systemInfo = utsname()
+                uname(&systemInfo)
+                let hardware = ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"] ??
+                    withUnsafeBytes(of: &systemInfo.machine) { bytes in
+                        String(decoding: bytes.prefix { $0 != 0 }, as: UTF8.self)
+                    }
+                result([
+                    "model": "\(UIDevice.current.model)（\(hardware)）",
+                    "systemName": UIDevice.current.systemName,
+                    "systemVersion": UIDevice.current.systemVersion,
+                ])
+            case "shareFile":
+                self.shareFile(call, result: result)
             case "connect": // 链接蓝牙
                 if let args = call.arguments as? [String: Any],
                    let name = args["name"] as? String {
@@ -43,11 +57,47 @@ import UIKit
                 }
                 
                 result(nil)
+            case "authkeyConnect":
+                guard let args = call.arguments as? [String: Any],
+                      let authkey = args["authkey"] as? String else {
+                    result(FlutterError(code: "INVALID_AUTHKEY", message: "AuthKey 需为十六进制字符串", details: nil))
+                    return
+                }
+                PNode.shared().authkeyConnect(authkey)
+                result(nil)
+            case "resetAuthkey":
+                guard let args = call.arguments as? [String: Any],
+                      let authkey = args["authkey"] as? String else {
+                    result(FlutterError(code: "INVALID_AUTHKEY", message: "AuthKey 需为十六进制字符串", details: nil))
+                    return
+                }
+                PNode.shared().resetAuthkey(authkey)
+                result(nil)
+            case "unbondAuthkey":
+                PNode.shared().unbondAuthkey()
+                result(nil)
+            case "setWifiPassword":
+                guard let args = call.arguments as? [String: Any],
+                      let password = args["password"] as? String,
+                      (8...16).contains(password.utf16.count) else {
+                    result(FlutterError(code: "INVALID_PASSWORD", message: "热点密码需为 8-16 个字符", details: nil))
+                    return
+                }
+                PNode.shared().setWifiPassword(password)
+                result(nil)
             case "close"://断开链接
                 PNode.shared().closeConnect()
                 result(nil)
             case "startRecord"://开始录音
                 PNode.shared().startRecord()
+                result(nil)
+            case "startRecordWithBoneMic":
+                guard let args = call.arguments as? [String: Any],
+                      let enabled = args["enabled"] as? Bool else {
+                    result(FlutterError(code: "INVALID_BONE_MIC", message: "骨麦开关需为布尔值", details: nil))
+                    return
+                }
+                PNode.shared().startRecord(enabled ? 1 : 0)
                 result(nil)
             case "pauseRecord"://暂停录音
                 PNode.shared().pauseRecord()
@@ -74,6 +124,15 @@ import UIKit
             case "syncTime"://同步时间
                 PNode.shared().syncTime()
                 result(nil)
+            case "setTimestamp":
+                guard let args = call.arguments as? [String: Any],
+                      let timestamp = args["timestamp"] as? Int64,
+                      timestamp >= 0, timestamp <= Int64(UInt32.max) else {
+                    result(FlutterError(code: "INVALID_TIMESTAMP", message: "时间戳需为 32 位无符号 Unix 秒", details: nil))
+                    return
+                }
+                PNode.shared().setTimestamp(UInt32(timestamp))
+                result(nil)
             case "getRecordFileList"://文件列表
                 PNode.shared().getRecordFileList();
                 result(nil)
@@ -86,9 +145,6 @@ import UIKit
                 PNode.shared().getSn()
                 result(nil)
             case "startGetFile"://传输文件
-                
-                
-                
                 if let args = call.arguments as? [String: Any],let fileName = args["fileName"] as? String {
                     PNode.shared().startGetFile(fileName,"0")
                 } else {
@@ -196,6 +252,12 @@ import UIKit
                 PNode.shared().connectDeviceWiFi()
              
                 result(nil)
+            case "quickConnectDeviceWiFi":
+                let args = call.arguments as? [String: Any]
+                let password = args?["password"] as? String ?? ""
+                PNode.shared().quickConnectDeviceWiFi(withWiFiTimeout: 30, tcpTimeout: 10, password: password)
+
+                result(nil)
             case "disconnectDeviceWiFi":
 
                 PNode.shared().disconnectDeviceWiFi()
@@ -203,6 +265,43 @@ import UIKit
                 result(nil)
             case "getWiFiHotspotState":
                 PNode.shared().getWiFiHotspotState()
+                result(nil)
+            case "setDeviceName":
+                guard let args = call.arguments as? [String: Any],
+                      let name = args["name"] as? String else {
+                    result(FlutterError(code: "INVALID_ARGUMENT", message: "设备名称不能为空", details: nil))
+                    return
+                }
+                PNode.shared().setDeviceName(name)
+                result(nil)
+            case "resetDevice":
+                PNode.shared().restDevice()
+                result(nil)
+            case "resetDeviceName":
+                PNode.shared().resetDeviceName()
+                result(nil)
+            case "setWifiDirect":
+                guard let args = call.arguments as? [String: Any],
+                      let ssid = args["ssid"] as? String,
+                      let password = args["password"] as? String else {
+                    result(FlutterError(code: "INVALID_ARGUMENT", message: "Wi-Fi 名称和密码不能为空", details: nil))
+                    return
+                }
+                PNode.shared().setWiFiDirectSSID(ssid, password: password)
+                result(nil)
+            case "setRemoteUrl":
+                guard let args = call.arguments as? [String: Any],
+                      let url = args["url"] as? String else {
+                    result(FlutterError(code: "INVALID_ARGUMENT", message: "上传 URL 不能为空", details: nil))
+                    return
+                }
+                PNode.shared().setRemoteURL(url)
+                result(nil)
+            case "resetWifiDirect":
+                PNode.shared().resetWiFiDirect()
+                result(nil)
+            case "getWifiDirect":
+                PNode.shared().getWiFiDirect()
                 result(nil)
             case "requestDeviceGotoOtaMode":
                 PNode.shared().requestDeviceGotoOtaMode()
@@ -232,19 +331,91 @@ import UIKit
                     print("参数错误，state 缺失")
                 }
                 result(nil)
+            case "sendFileTimeInterval":
+                guard let args = call.arguments as? [String: Any],
+                      let interval = args["interval"] as? Int,
+                      (13...255).contains(interval) else {
+                    result(FlutterError(code: "INVALID_ARGUMENT", message: "传输间隔须为 13–255 毫秒", details: nil))
+                    return
+                }
+                PNode.shared().sendFileTimeInterval(UInt8(interval))
+                result(nil)
+            case "setHeartbeatDataState":
+                guard let args = call.arguments as? [String: Any],
+                      let state = args["state"] as? Int,
+                      (0...1).contains(state) else {
+                    result(FlutterError(code: "INVALID_ARGUMENT", message: "心跳开关仅支持 0 或 1", details: nil))
+                    return
+                }
+                PNode.shared().setHeartbeatDataState(Int32(state))
+                result(nil)
+            case "sendBackHeartbeatData":
+                PNode.shared().sendBackHeartbeatData()
+                result(nil)
+            case "getBKHDVersion":
+                PNode.shared().getBKHDVersion()
+                result(nil)
+            case "setBK_UPGRADEHD":
+                guard let args = call.arguments as? [String: Any],
+                      let url = args["url"] as? String,
+                      !url.isEmpty else {
+                    result(FlutterError(code: "INVALID_ARGUMENT", message: "BK 升级 URL 不能为空", details: nil))
+                    return
+                }
+                PNode.shared().setBKUpgradeHD(url)
+                result(nil)
             default:
                 result(nil)
             }
         }
-        
-        
-        
-        PNode.shared().delegate = self
-        
-        return super.application(application, didFinishLaunchingWithOptions: launchOptions)
     }
     
     var eventSink: FlutterEventSink?
+
+    private func shareFile(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard fileShareResult == nil else {
+            result(FlutterError(code: "FILE_SHARE_BUSY", message: "正在分享文件", details: nil))
+            return
+        }
+        guard let args = call.arguments as? [String: Any],
+              let path = args["path"] as? String,
+              FileManager.default.isReadableFile(atPath: path) else {
+            result(FlutterError(code: "INVALID_SHARE_FILE", message: "分享文件不存在", details: nil))
+            return
+        }
+        let window = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .filter { $0.activationState == .foregroundActive }
+            .flatMap { $0.windows }
+            .first { $0.isKeyWindow }
+        guard var presenter = window?.rootViewController else {
+            result(FlutterError(code: "FILE_SHARE_FAILED", message: "无法打开系统分享界面", details: nil))
+            return
+        }
+        while let presented = presenter.presentedViewController {
+            presenter = presented
+        }
+        let picker = UIActivityViewController(
+            activityItems: [URL(fileURLWithPath: path)], applicationActivities: nil
+        )
+        picker.completionWithItemsHandler = { [weak self] _, completed, _, error in
+            guard let self = self else { return }
+            let reply = self.fileShareResult
+            self.fileShareResult = nil
+            if let error = error {
+                reply?(FlutterError(code: "FILE_SHARE_FAILED", message: "分享文件失败", details: error.localizedDescription))
+            } else {
+                reply?(completed)
+            }
+        }
+        if let popover = picker.popoverPresentationController {
+            popover.sourceView = presenter.view
+            popover.sourceRect = CGRect(x: presenter.view.bounds.midX, y: presenter.view.bounds.midY, width: 1, height: 1)
+            popover.permittedArrowDirections = []
+        }
+        fileShareResult = result
+        presenter.present(picker, animated: true)
+    }
 }
 
 extension AppDelegate: WindBleDelegate {
@@ -266,7 +437,7 @@ extension AppDelegate: WindBleDelegate {
     }
     
     func deviceFileData(_ fileData: Data) {
-        print("备文件数据 opus格式\(fileData.count)")
+//         print("设备文件数据 opus格式\(fileData.count)")
         if let eventSink = eventSink {
             eventSink([
                 "audioType": "file",

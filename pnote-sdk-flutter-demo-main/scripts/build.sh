@@ -104,7 +104,7 @@ else
   FLUTTER_ARGS+=(--release)
 fi
 
-flutter "${FLUTTER_ARGS[@]}"
+"$ROOT_DIR/.fvm/flutter_sdk/bin/flutter" "${FLUTTER_ARGS[@]}"
 
 # 拷贝产物到统一目录，便于取包
 if [[ "$TARGET" == "apk" ]]; then

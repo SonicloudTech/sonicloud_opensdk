@@ -1,7 +1,5 @@
 # Soni SDK Demo（Flutter）
 
-The app bar includes a language menu for `中文` and `English`. Protocol events and device payloads keep their original values for debugging.
-
 基于 Flutter 的录音笔 SDK 演示工程，用于验证蓝牙连接、录音控制、文件传输、Wi-Fi 连接和 OTA 升级等完整链路。  
 工程通过 `MethodChannel` / `EventChannel` 与 Android / iOS 原生 SDK 通信，适合作为 SDK 联调与功能验收 Demo。
 
@@ -10,7 +8,7 @@ The app bar includes a language menu for `中文` and `English`. Protocol events
 - 设备搜索与连接（蓝牙）
 - 录音控制（开始/暂停/停止）
 - 录音文件列表查询与文件下载
-- 实时音频数据接收（Opus）与本地解码（PCM/WAV）
+- 实时音频数据接收（Opus）；Android 直接封装 Ogg Opus，iOS 解码并保存 PCM/WAV
 - 设备 Wi-Fi 热点管理与连接状态回传
 - OTA 升级流程（进入升级模式、发送固件）
 - 固件版本、SN、电量、按键状态等设备信息读取
@@ -37,41 +35,81 @@ The app bar includes a language menu for `中文` and `English`. Protocol events
 │   ├── service_transfer_files.dart   # 文件传输辅助
 │   ├── service_system_ability.dart   # 系统能力与权限工具
 │   ├── wave_write.dart               # PCM 转 WAV
+│   ├── ogg_opus_writer.dart          # Android Opus 流式封装与批量写入 Ogg
 │   └── logger.dart                   # 日志输出
 ├── android
 │   └── app/src/main/kotlin/.../MainActivity.kt   # Android 原生通道实现
 ├── ios
 │   └── Runner/...                                  # iOS 原生通道实现
 ├── assets                           # 资源与 OTA 固件（示例）
-├── android SDK开发文档(最新版本)-2026.04.23.md
-└── iOS SDK开发文档(最新版本)-2026.04.23.md
+├── android SDK开发文档.md
+└── iOS SDK开发文档.md
 ```
 
 ## 环境要求
 
-- Flutter SDK（建议与项目当前版本兼容）
+- FVM，项目固定使用 Flutter 3.41.9（Dart 3.11.5）
 - Xcode（iOS 构建）
 - Android Studio / Android SDK（Android 构建）
 - 真机设备（蓝牙、Wi-Fi、录音、热点等能力不建议使用模拟器）
 
 ## 快速开始
 
+先安装 FVM，并在项目根目录安装、选择项目指定的 SDK：
+
+```bash
+curl -fsSL https://fvm.app/install.sh | bash
+export PATH="$HOME/fvm/bin:$PATH"
+fvm install
+fvm use 3.41.9
+```
+
+后续 Flutter 命令统一加上 `fvm` 前缀。IDE 的 Flutter SDK 路径使用 `.fvm/flutter_sdk`。
+
 1. 安装依赖
 
    ```bash
-   flutter pub get
+   fvm flutter pub get
    ```
 
 2. 连接设备并运行
 
    ```bash
-   flutter run
+   fvm flutter run
    ```
 
 3. 首次启动时授权（Android）
    - 蓝牙扫描/连接
    - 定位权限
    - 附近 Wi-Fi 设备权限（Android 13+）
+
+## iOS 打包与版本号
+
+iOS 版本号由 `pubspec.yaml` 的 `version` 统一管理。例如，`version: 4.0.3+4` 对应 App 显示版本 `4.0.3` 与构建版本 `4`，Demo 主页显示 `SoniSDKDemo V4.0.3（4）`。
+
+修改版本号后、使用 Xcode Archive 或 Flutter 打包前，在项目根目录执行以下命令，刷新 Xcode 使用的版本号配置：
+
+```bash
+fvm flutter build ios --config-only --no-codesign
+```
+
+该命令会更新 `ios/Flutter/Generated.xcconfig` 中的 `FLUTTER_BUILD_NAME` 和 `FLUTTER_BUILD_NUMBER`，分别对应 iOS 的 `CFBundleShortVersionString` 和 `CFBundleVersion`。
+
+如果重新构建后仍显示旧版本号，在项目根目录清理构建缓存并重新生成配置：
+
+```bash
+fvm flutter clean
+fvm flutter pub get
+fvm flutter build ios --config-only --no-codesign
+```
+
+随后打开 `ios/Runner.xcworkspace`，在 Xcode 中执行 **Product → Clean Build Folder**（`Shift + Command + K`），再重新 Run 安装或 Archive 打包。热重载、热重启不会更新已安装 App 的版本号。
+
+不要手动修改 `ios/Flutter/Generated.xcconfig`，该文件由 Flutter 自动生成并会被覆盖。
+
+iOS 使用 `FlutterSceneDelegate` 启动，插件及原生通信通道在 `didInitializeImplicitFlutterEngine` 注册，以满足 iOS 27 SDK 的 UIScene 生命周期要求。升级 SDK 后，先执行上述配置生成命令，再使用 Xcode Run 或 Archive。
+
+参考：[Flutter iOS 版本号说明](https://docs.flutter.dev/deployment/ios#update-the-apps-build-and-version-numbers)、[package_info_plus 版本号缓存说明](https://pub.dev/packages/package_info_plus/versions/9.0.1#i-have-changed-version-in-pubspecyaml-and-plugin-returns-wrong-info)。
 
 ## 联调说明
 
@@ -80,7 +118,7 @@ The app bar includes a language menu for `中文` and `English`. Protocol events
 - 原生桥接：
   - Android：`android/app/src/main/kotlin/com/soni/soni_sdk_demo/MainActivity.kt`
   - iOS：`ios/Runner` 下对应通道实现
-- SDK 协议与命令说明请参考根目录两份平台 SDK 文档。
+- SDK 协议与命令说明请参考根目录的 [Android SDK 开发文档](<android SDK开发文档.md>) 和 [iOS SDK 开发文档](<iOS SDK开发文档.md>)。两份文档已补充杰理设备心跳接口与回调、离线文件传输间隔设置，以及 AuthKey 修改与解绑说明。
 
 ## Wi-Fi 状态码说明
 

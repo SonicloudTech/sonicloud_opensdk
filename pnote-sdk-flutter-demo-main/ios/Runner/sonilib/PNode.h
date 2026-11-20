@@ -59,6 +59,16 @@
 ///同步时间
 -(void)syncTime;
 
+/// 设置时间戳，按 4 字节大端原样发送传入值；SDK 不处理时区或时间换算。
+-(void)setTimestamp:(uint32_t)timestamp;
+
+/// 设置离线文件传输间隔，单位为毫秒。
+-(void)sendFileTimeInterval:(uint8_t)interval;
+/// 收到 cmd=101 后回复设备心跳。
+-(void)sendBackHeartbeatData;
+/// 0 关闭，1 开启。其他值抛出 NSInvalidArgumentException。
+-(void)setHeartbeatDataState:(int)state;
+
 ///获取SN
 -(void)getSn;
 
@@ -67,6 +77,9 @@
 
 ///启动录音
 -(void)startRecord;
+
+///启动录音并选择麦克风：0 关闭骨麦、开启数字麦；1 开启骨麦、关闭数字麦；其他值无效
+-(void)startRecord:(NSInteger)boneMic;
 
 ///暂停录音
 -(void)pauseRecord;
@@ -137,6 +150,12 @@
 //发送文件数据
 -(void)sendOtaFile:(NSData *)data;
 
+//获取BK固件版本号
+-(void)getBKHDVersion;
+
+//下发BK升级固件URL地址
+-(void)setBKUpgradeHD:(NSString *)url;
+
 ///打开WiFi
 -(void)openWiFi;
 
@@ -149,6 +168,17 @@
 ///连接设备WiFi
 -(void)connectDeviceWiFi;
 
+///打开设备热点并自动连接热点，TCP连接成功后返回wifi_state=2
+///使用前宿主App必须满足以下条件：
+///1. 在Target > Signing & Capabilities中启用Hotspot Configuration；
+///2. 确保证书和Provisioning Profile包含对应entitlement：
+///   com.apple.developer.networking.HotspotConfiguration；
+///3. App需位于前台，并由用户处理系统可能弹出的WiFi加入确认。
+/// @param wifiTimeout WiFi快速连接总超时时间，单位：秒，传入非正数使用默认30秒
+/// @param tcpTimeout 单次TCP连接超时时间，单位：秒，传入非正数使用默认10秒
+/// @param password WiFi密码，传入空字符串或nil时默认连接无密码热点
+-(void)quickConnectDeviceWiFiWithWiFiTimeout:(NSTimeInterval)wifiTimeout tcpTimeout:(NSTimeInterval)tcpTimeout password:(NSString *)password;
+
 ///断开设备WiFi连接
 -(void)disconnectDeviceWiFi;
 
@@ -160,5 +190,38 @@
 
 /// 设置当前设备低功耗录音模式
 -(void)setDeviceLowPowerRecordMode:(int)state;
+
+///设置设备名称，仅支持 2-16 位英文或数字
+-(void)setDeviceName:(NSString *)name;
+
+///AuthKey十六进制认证，64位十六进制字符，支持首尾空白及0x/0X前缀；无效参数不发送，结果JSON cmd=31
+-(void)authkeyConnect:(NSString *)authkey;
+
+///修改AuthKey，64位十六进制字符，支持首尾空白及0x/0X前缀；无效参数不发送，结果JSON cmd=32
+-(void)resetAuthkey:(NSString *)authkey;
+
+///解除绑定并恢复出厂默认AuthKey；结果JSON cmd=33
+-(void)unbondAuthkey;
+
+///设置设备热点密码，8-16个字符，热点已开启时下次开启生效；结果JSON cmd=34
+-(void)setWifiPassword:(NSString *)password;
+
+///复位设备名称为出厂默认值
+-(void)resetDeviceName;
+
+///恢复出厂设置，设备回复后删除全部音频、恢复默认蓝牙名称并重启；结果JSON cmd=35
+-(void)restDevice;
+
+///设置Wifi直传SSID和密码
+-(void)setWiFiDirectSSID:(NSString *)ssid password:(NSString *)password;
+
+///设置音频直传服务器URL
+-(void)setRemoteURL:(NSString *)remoteURL;
+
+///复位Wifi直传参数
+-(void)resetWiFiDirect;
+
+///获取当前Wifi直传SSID和连接状态
+-(void)getWiFiDirect;
 
 @end

@@ -24,6 +24,17 @@ class RecordPenRecordService {
     }
   }
 
+  /// L09 启动录音：开启骨麦时关闭数字麦，关闭骨麦时开启数字麦
+  Future<void> startRecordWithBoneMic(bool enabled) async {
+    try {
+      await _methodChannel.invokeMethod('startRecordWithBoneMic', {
+        'enabled': enabled,
+      });
+    } catch (e) {
+      Log.e('[录音调试][L09] 启动录音失败: $e');
+    }
+  }
+
   /// 暂停录音
   Future<void> pauseRecord() async {
     try {
@@ -130,6 +141,7 @@ class RecordPenRecordService {
       });
     } catch (e) {
       Log.e('❌ 传输文件失败: $e');
+      rethrow;
     }
   }
 
@@ -140,6 +152,7 @@ class RecordPenRecordService {
       await _methodChannel.invokeMethod('stopGetFile', {'fileName': fileName});
     } catch (e) {
       Log.e('❌ 停止传输失败: $e');
+      rethrow;
     }
   }
 }

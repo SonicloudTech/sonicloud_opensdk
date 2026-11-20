@@ -1,10 +1,13 @@
 package com.soni.soni_sdk_demo
 
+import android.content.Intent
 import android.os.Bundle
+import android.os.Build
 import android.util.Log
+import android.content.ClipData
+import androidx.core.content.FileProvider
 import com.soni.soni_sdk_demo.util.AES256GCMUtil
 import com.wind.pnote.ui.DeviceDataListener
-import com.wind.pnote.ui.DevicesLogDataListener
 import com.wind.pnote.ui.LogDataListener
 import com.wind.pnote.ui.PNote
 import io.flutter.embedding.android.FlutterFragmentActivity
@@ -12,12 +15,12 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 import io.reactivex.plugins.RxJavaPlugins
+import java.io.File
 
 class MainActivity : FlutterFragmentActivity(), DeviceDataListener {
     private val channel = "com.soni.soni_sdk_demo/recordPen"
     private val eventChannelName = "com.soni.soni_sdk_demo/eventChannel";
     private var eventSink: EventChannel.EventSink? = null;
-
     /** B 款 AES 会话 IV，后续 packet 共用；A 款不使用 */
     private var sessionIv: ByteArray? = null
 
@@ -28,6 +31,37 @@ class MainActivity : FlutterFragmentActivity(), DeviceDataListener {
             channel
         ).setMethodCallHandler { call, result ->
             when (call.method) {
+
+                "getPhoneInfo" -> {
+                    result.success(mapOf(
+                        "model" to "${Build.MANUFACTURER} ${Build.MODEL}",
+                        "systemName" to "Android",
+                        "systemVersion" to Build.VERSION.RELEASE
+                    ))
+                }
+
+                "shareFile" -> {
+                    val source = call.argument<String>("path")?.let { File(it) }
+                    if (source == null || !source.isFile) {
+                        result.error("INVALID_SHARE_FILE", "分享文件不存在", null)
+                    } else {
+                        try {
+                            val uri = FileProvider.getUriForFile(
+                                this, "$packageName.shared_files", source
+                            )
+                            val intent = Intent(Intent.ACTION_SEND).apply {
+                                type = call.argument<String>("mimeType") ?: "application/octet-stream"
+                                putExtra(Intent.EXTRA_STREAM, uri)
+                                clipData = ClipData.newUri(contentResolver, source.name, uri)
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            startActivity(Intent.createChooser(intent, "分享文件"))
+                            result.success(true)
+                        } catch (error: Exception) {
+                            result.error("FILE_SHARE_FAILED", "无法打开系统分享界面", error.message)
+                        }
+                    }
+                }
 
                 "init" -> {
                     // 初始化PNote
@@ -68,6 +102,17 @@ class MainActivity : FlutterFragmentActivity(), DeviceDataListener {
                     result.success(null)
                 }
 
+                "startRecordWithBoneMic" -> {
+                    val enabled = call.argument<Boolean>("enabled")
+                    if (enabled == null) {
+                        result.error("INVALID_BONE_MIC", "骨麦开关需为布尔值", null)
+                    } else {
+                        sessionIv = null
+                        PNote.startRecord(if (enabled) 1 else 0)
+                        result.success(null)
+                    }
+                }
+
                 "pauseRecord" -> {
                     PNote.pauseRecord()
                     result.success(null)
@@ -104,6 +149,41 @@ class MainActivity : FlutterFragmentActivity(), DeviceDataListener {
                     PNote.connectDevice(name, address)
 
                     result.success("connect success")
+                }
+
+                "authkeyConnect" -> {
+                    val authkey = call.argument<String>("authkey")
+                    if (authkey == null) {
+                        result.error("INVALID_AUTHKEY", "AuthKey 需为十六进制字符串", null)
+                    } else {
+                        PNote.authkeyConnect(authkey)
+                        result.success(null)
+                    }
+                }
+
+                "resetAuthkey" -> {
+                    val authkey = call.argument<String>("authkey")
+                    if (authkey == null) {
+                        result.error("INVALID_AUTHKEY", "AuthKey 需为十六进制字符串", null)
+                    } else {
+                        PNote.ResetAuthkey(authkey)
+                        result.success(null)
+                    }
+                }
+
+                "unbondAuthkey" -> {
+                    PNote.UnbondAuthkey()
+                    result.success(null)
+                }
+
+                "setWifiPassword" -> {
+                    val password = call.argument<String>("password")
+                    if (password == null || password.length !in 8..16) {
+                        result.error("INVALID_PASSWORD", "热点密码需为 8-16 个字符", null)
+                    } else {
+                        PNote.SetWifiPassword(password)
+                        result.success(null)
+                    }
                 }
 
                 "close" -> {
@@ -175,6 +255,16 @@ class MainActivity : FlutterFragmentActivity(), DeviceDataListener {
                 "syncTime" -> {
                     PNote.syncTime()
                     result.success(null)
+                }
+
+                "setTimestamp" -> {
+                    val timestamp = call.argument<Number>("timestamp")?.toLong()
+                    if (timestamp == null || timestamp !in 0L..0xFFFFFFFFL) {
+                        result.error("INVALID_TIMESTAMP", "时间戳需为 32 位无符号 Unix 秒", null)
+                    } else {
+                        PNote.setTimestamp(timestamp)
+                        result.success(null)
+                    }
                 }
 
                 "startBtnBackRecord" -> {
@@ -299,12 +389,49 @@ class MainActivity : FlutterFragmentActivity(), DeviceDataListener {
                     PNote.connectDeviceWiFi()
                     result.success(null)
                 }
+                "quickConnectDeviceWiFi" -> {
+                    val password = call.argument<String>("password") ?: ""
+                    PNote.quickConnectDeviceWiFi(password, 30, 10)
+                    result.success(null)
+                }
                 ///断开设备WiFi连接
                 "disconnectDeviceWiFi" -> {
                     Log.d("开始调用", " PNote.disconnectDeviceWiFi()")
 
 
                     PNote.disconnectDeviceWiFi()
+                    result.success(null)
+                }
+                "setDeviceName" -> {
+                    val name = call.argument<String>("name") ?: ""
+                    PNote.SetDeviceName(name)
+                    result.success(null)
+                }
+                "resetDevice" -> {
+                    PNote.RestDevice()
+                    result.success(null)
+                }
+                "resetDeviceName" -> {
+                    PNote.ResetDeviceName()
+                    result.success(null)
+                }
+                "setWifiDirect" -> {
+                    val ssid = call.argument<String>("ssid") ?: ""
+                    val password = call.argument<String>("password") ?: ""
+                    PNote.SetWifi(ssid, password)
+                    result.success(null)
+                }
+                "setRemoteUrl" -> {
+                    val url = call.argument<String>("url") ?: ""
+                    PNote.SetRemoteURL(url)
+                    result.success(null)
+                }
+                "resetWifiDirect" -> {
+                    PNote.ResetWifi()
+                    result.success(null)
+                }
+                "getWifiDirect" -> {
+                    PNote.GetWifi()
                     result.success(null)
                 }
                 ///请求设备进入OTA升级模式
@@ -349,10 +476,42 @@ class MainActivity : FlutterFragmentActivity(), DeviceDataListener {
                     result.success(null)
                 }
 
-                /// 设置双通道传输间隔
-                "sendFileTimeInterval" ->{
-                    val timeInterval: Byte = (call.argument<Int>("timeInterval") ?: 13).toByte()
-                    PNote.sendFileTimeInterval(timeInterval)
+                /// 设置离线文件传输间隔
+                "sendFileTimeInterval" -> {
+                    val interval = call.argument<Int>("interval")
+                    if (interval == null || interval !in 13..255) {
+                        result.error("INVALID_ARGUMENT", "传输间隔须为 13–255 毫秒", null)
+                    } else {
+                        PNote.sendFileTimeInterval(interval.toByte())
+                        result.success(null)
+                    }
+                }
+                "setHeartbeatDataState" -> {
+                    val state = call.argument<Int>("state")
+                    if (state == null || state !in 0..1) {
+                        result.error("INVALID_ARGUMENT", "心跳开关仅支持 0 或 1", null)
+                    } else {
+                        PNote.setHeartbeatDataState(state)
+                        result.success(null)
+                    }
+                }
+                "sendBackHeartbeatData" -> {
+                    PNote.sendBackHeartbeatData()
+                    result.success(null)
+                }
+
+                /// 获取 BK 版本号
+                "getBKHDVersion" -> {
+                    Log.d("开始调用", "PNote.getBKHDVersion()")
+                    PNote.getBKHDVersion()
+                    result.success(null)
+                }
+                /// 发送 BK 升级 URL
+                "setBK_UPGRADEHD" -> {
+                    val url = call.argument<String>("url") ?: ""
+                    Log.d("开始调用", "PNote.setBK_UPGRADEHD() url=$url")
+                    PNote.setBK_UPGRADEHD(url)
+                    result.success(null)
                 }
 
                 else -> {
