@@ -270,11 +270,11 @@ void main() {
     await tester.pump(const Duration(seconds: 3));
     await tester.pump(const Duration(milliseconds: 100));
     expect(calls.where((call) => const {
-      'syncTime', 'setTimestamp', 'getCBC', 'getSN',
+      'syncTime', 'getCBC', 'getSN',
     }.contains(call.method)), isEmpty);
   });
 
-  connectionTest('connection alone does not send time before authentication', (
+  connectionTest('successful connection syncs time before authentication', (
     tester,
     provider,
   ) async {
@@ -282,31 +282,24 @@ void main() {
     await tester.pump(const Duration(seconds: 2));
     await tester.pump(const Duration(milliseconds: 50));
     await tester.pump(const Duration(milliseconds: 50));
-    expect(calls.where((call) => const {
-      'syncTime', 'setTimestamp',
-    }.contains(call.method)), isEmpty);
+    final sent = calls.where((call) => call.method == 'syncTime').single;
+    expect(sent.arguments, isNull);
   });
 
-  connectionTest('successful authentication sends Beijing time seconds', (
+  connectionTest('successful authentication syncs time', (
     tester,
     provider,
   ) async {
     await emit(tester, connection('device-a'));
     for (final zero in [0, '0']) {
       calls.clear();
-      final before = DateTime.now().millisecondsSinceEpoch ~/ 1000;
       await emit(tester, {
         'cmd': 31,
         'state': zero,
         'data': {'authkey_state': zero},
       });
-      final after = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-      final sent = calls.where((call) => call.method == 'setTimestamp').single;
-      expect(
-        sent.arguments['timestamp'],
-        inInclusiveRange(before + 28800, after + 28800),
-      );
-      expect(calls.where((call) => call.method == 'syncTime'), isEmpty);
+      expect(calls.single.method, 'syncTime');
+      expect(calls.single.arguments, isNull);
     }
   });
 
@@ -331,11 +324,11 @@ void main() {
     await emit(tester, {
       'cmd': 31, 'state': 0, 'data': {'authkey_state': '0'},
     });
-    expect(calls.where((call) => call.method == 'setTimestamp'), isEmpty);
+    expect(calls.where((call) => call.method == 'syncTime'), isEmpty);
   });
 
   for (final type in [201, 202, 48, 199, null]) {
-    connectionTest('manual time sync chooses the interface for type $type', (
+    connectionTest('manual time sync calls syncTime for type $type', (
       tester,
       provider,
     ) async {
@@ -349,19 +342,9 @@ void main() {
         },
       });
       calls.clear();
-      final before = DateTime.now().millisecondsSinceEpoch ~/ 1000;
       await provider.asyncNowTime();
-      final after = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-      if (type == 201 || type == 202) {
-        expect(calls.single.method, 'setTimestamp');
-        expect(
-          calls.single.arguments['timestamp'],
-          inInclusiveRange(before + 28800, after + 28800),
-        );
-      } else {
-        expect(calls.single.method, 'syncTime');
-        expect(calls.single.arguments, isNull);
-      }
+      expect(calls.single.method, 'syncTime');
+      expect(calls.single.arguments, isNull);
     });
   }
 

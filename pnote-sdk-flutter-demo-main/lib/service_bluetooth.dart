@@ -100,11 +100,6 @@ class RecordPenBluetoothService {
     }
   }
 
-  /// 原样下发 Demo 已按北京时间换算的秒级时间值，SDK 不处理时区。
-  Future<void> setTimestamp(int timestamp) async {
-    await _methodChannel.invokeMethod('setTimestamp', {'timestamp': timestamp});
-  }
-
   /// 同步时间到设备
   Future<void> syncTime() async {
     try {

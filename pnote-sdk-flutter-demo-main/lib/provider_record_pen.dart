@@ -561,7 +561,7 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
               map['state']?.toString() == '0' &&
               authData is Map &&
               authData['authkey_state']?.toString() == '0') {
-            await _sendBeijingTimestamp();
+            await _bluetoothService.syncTime();
           }
           break;
         case "32":
@@ -846,6 +846,9 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
         await ServiceSystemAbility.sleep(50);
         if (!_isConnected || generation != _connectionGeneration) return;
         getSN();
+        await ServiceSystemAbility.sleep(50);
+        if (!_isConnected || generation != _connectionGeneration) return;
+        await _bluetoothService.syncTime();
         // // ⚠️⚠️⚠️⚠️⚠️紧接着开始获取传输文件，传输蓝牙大概率断，所以需要延时3秒才可以
         // await ServiceSystemAbility.sleep(3000);
         // getRecordFileList();
@@ -1230,21 +1233,9 @@ class RecordPenProvider extends ChangeNotifier with WidgetsBindingObserver {
     await _bluetoothService.getSN();
   }
 
-  /// 手动下发时间：201、202 使用时间戳，其他设备使用原接口。
+  /// 手动同步设备时间。
   Future<void> asyncNowTime() async {
-    if (deviceType == 201 || deviceType == 202) {
-      await _sendBeijingTimestamp();
-    } else {
-      await _bluetoothService.syncTime();
-    }
-  }
-
-  /// SDK 原样发送时间值，Demo 固定按 UTC+8 换算为北京时间。
-  Future<void> _sendBeijingTimestamp() async {
-    final beijingTime = DateTime.now().toUtc().add(const Duration(hours: 8));
-    await _bluetoothService.setTimestamp(
-      beijingTime.millisecondsSinceEpoch ~/ 1000,
-    );
+    await _bluetoothService.syncTime();
   }
 
   /// 获取录音笔正在录音中时候的录音文件名称

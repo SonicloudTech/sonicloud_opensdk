@@ -125,7 +125,7 @@ class DeviceLocalizations {
   String get getBattery => _text('获取电量', 'Battery');
   String get getCapacity => _text('获取容量', 'Capacity');
   String get getSn => _text('获取SN', 'Get SN');
-  String get syncTime => _text('给设备下发时间', 'Sync time');
+  String get syncTime => _text('同步设备时间', 'Sync time');
   String get getGain => _text('获取当前增益', 'Get gain');
   String get setGain => _text('设置当前增益', 'Set gain');
   String get appState => _text('通知APP前后台', 'App state');

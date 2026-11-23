@@ -107,7 +107,7 @@ public interface DeviceDataListener {
     
     注：如果设备端关机等情况断开连接，SDK也会主动上报断开连接的数据；
 
-#### AuthKey 认证（C10 新增）
+#### AuthKey 认证
 
 以下接口用于支持 AuthKey 的设备，调用前需完成 SDK 初始化并保持蓝牙连接。
 
@@ -477,7 +477,7 @@ Java / Kotlin 的 `byte` / `Byte` 为有符号类型，`128–255` 毫秒需先�
 
 `offline_transfer_interval_state`：`0` 表示设置成功，`1` 表示设置失败。方法返回仅表示调用已完成，需等待设备回调确认设置结果。
 
-### 4、WIFI操作管理
+### 4、WIFI操作管理（建议使用快速连接设备 Wi-Fi）
 
     /// 获取是否连接上设备WiFi
     public static void getDeviceWiFiState();
@@ -485,13 +485,13 @@ Java / Kotlin 的 `byte` / `Byte` 为有符号类型，`128–255` 毫秒需先�
     /// 获取WiFi热点是否被手机连接上
     public static void getWiFiHotspotState();
     操作成功后，会在cmd 12的接口返回WiFi状态:4 有手机连接设备WiFi热点   5当前没有手机连接设备WiFi热点
-    /// 打开WiFi
+    /// 打开WiFi（建议使用快速连接设备 Wi-Fi）
     public static void openWiFi();
     操作成功后，会在cmd 12的接口返回WiFi状态:0表示WiFi热点打开 1 表示WiFi热点关闭
     /// 关闭WiFi
     public static void closeWiFi();
     操作成功后，会在cmd 12的接口返回WiFi状态:0表示WiFi热点打开 1 表示WiFi热点关闭
-    /// 连接WiFi
+    /// 连接WiFi（建议使用快速连接设备 Wi-Fi）
     public static void connectDeviceWiFi();
     操作成功后，会在cmd 12的接口返回WiFi状态：2表示WiFi连接成功，3表示WiFi断开连接
     /// 断开WiFi
@@ -517,7 +517,7 @@ Java / Kotlin 的 `byte` / `Byte` 为有符号类型，`128–255` 毫秒需先�
     
     当手机连接上设备WiFi热点的时候，设备也会主动推送cmd为12的json数据:4 有手机连接设备WiFi热点；
 
-#### 快速连接设备 Wi-Fi
+#### 快速连接设备 Wi-Fi（需要断开Wi-Fi或连接失败需调用 disconnectDeviceWiFi + closeWiFi）
 
 当前 SDK 的快速连接仅提供以下三参数方法，不再提供无参或双参重载。有密码和无密码热点均调用此方法，无密码时将 `password` 传为空字符串 `""`。
 
@@ -541,7 +541,7 @@ PNote.quickConnectDeviceWiFi("", 30, 10);
 
 `password` 为设备热点当前密码；连接无密码热点时传入空字符串 `""`。Demo 点击“一键连接WiFi”后弹出与“密码连接”相同的密码输入框，允许留空；确认后将密码原样传入 SDK，取消则不发起连接。2-16个字符[英文、数字]
 
-#### 设置设备热点密码（C10 新增）
+#### 设置设备热点密码
 
 ```java
 public static void SetWifiPassword(String password);
@@ -781,7 +781,7 @@ public static void GetWifi();
 
 ### 6、其它
 
-#### 杰理设备心跳
+#### 设备心跳
 
 以下接口用于支持心跳协议的杰理设备，调用前需保持蓝牙连接。
 
@@ -851,7 +851,7 @@ Demo 的“设备发送”和“自动回复”分别控制设备心跳开关、
 
 #### 设备信息与设置
 
-    ///同步时间, 连接上设备后，需要先调用此方法把app时间同步给录音笔设备
+    /// 连接成功后同步时间，AuthKey 认证成功后再调用一次。SDK 按设备型号处理时间同步。
     public static void syncTime();
     
     ///获取电池电量

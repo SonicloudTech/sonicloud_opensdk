@@ -257,16 +257,6 @@ class MainActivity : FlutterFragmentActivity(), DeviceDataListener {
                     result.success(null)
                 }
 
-                "setTimestamp" -> {
-                    val timestamp = call.argument<Number>("timestamp")?.toLong()
-                    if (timestamp == null || timestamp !in 0L..0xFFFFFFFFL) {
-                        result.error("INVALID_TIMESTAMP", "时间戳需为 32 位无符号 Unix 秒", null)
-                    } else {
-                        PNote.setTimestamp(timestamp)
-                        result.success(null)
-                    }
-                }
-
                 "startBtnBackRecord" -> {
                     Log.d("开始调用", " PNote.startBtnBackRecord() ")
                     sessionIv = null

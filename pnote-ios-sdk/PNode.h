@@ -56,11 +56,8 @@
 //获取电池电量
 -(void)getCBC;
 
-///同步时间
+///同步设备时间。
 -(void)syncTime;
-
-/// 设置时间戳，按 4 字节大端原样发送传入值；SDK 不处理时区或时间换算。
--(void)setTimestamp:(uint32_t)timestamp;
 
 /// 设置离线文件传输间隔，单位为毫秒。
 -(void)sendFileTimeInterval:(uint8_t)interval;

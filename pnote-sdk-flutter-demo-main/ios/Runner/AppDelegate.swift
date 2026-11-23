@@ -124,15 +124,6 @@ import Darwin
             case "syncTime"://同步时间
                 PNode.shared().syncTime()
                 result(nil)
-            case "setTimestamp":
-                guard let args = call.arguments as? [String: Any],
-                      let timestamp = args["timestamp"] as? Int64,
-                      timestamp >= 0, timestamp <= Int64(UInt32.max) else {
-                    result(FlutterError(code: "INVALID_TIMESTAMP", message: "时间戳需为 32 位无符号 Unix 秒", details: nil))
-                    return
-                }
-                PNode.shared().setTimestamp(UInt32(timestamp))
-                result(nil)
             case "getRecordFileList"://文件列表
                 PNode.shared().getRecordFileList();
                 result(nil)
